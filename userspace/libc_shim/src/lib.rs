@@ -16,12 +16,15 @@ pub const SYS_WRITE: usize = 64;
 pub const SYS_EXIT: usize = 93;
 pub const SYS_SCHED_SETAFFINITY: usize = 122;
 pub const SYS_SCHED_GETAFFINITY: usize = 123;
+pub const SYS_REBOOT: usize = 142;
 pub const SYS_GETPID: usize = 172;
+pub const SYS_SYSINFO: usize = 179;
 pub const SYS_MUNMAP: usize = 215;
 pub const SYS_CLONE: usize = 220; // plain fork semantics on LightOS
 pub const SYS_EXECVE: usize = 221;
 pub const SYS_MMAP: usize = 222;
 pub const SYS_WAIT4: usize = 260;
+pub const SYS_PROCLIST: usize = 500; // LightOS-specific: `ps` listing
 
 // Program entry: the kernel starts every process here with a fresh
 // stack. Calls `main() -> i32`, then exits with its return value.
@@ -136,6 +139,40 @@ pub fn wait(status: &mut i32) -> i32 {
         0,
         0,
     ) as i32
+}
+
+/// System information (uptime seconds, total RAM, free RAM, process
+/// count) — a LightOS-native shape, not Linux's `struct sysinfo`.
+pub struct SysInfo {
+    pub uptime_secs: u64,
+    pub total_ram: u64,
+    pub free_ram: u64,
+    pub procs: u64,
+}
+
+/// Query kernel system information.
+pub fn sysinfo() -> SysInfo {
+    let mut buf = [0u8; 32];
+    syscall(SYS_SYSINFO, buf.as_mut_ptr() as usize, 0, 0, 0);
+    let rd = |o: usize| u64::from_le_bytes(buf[o..o + 8].try_into().unwrap());
+    SysInfo {
+        uptime_secs: rd(0),
+        total_ram: rd(8),
+        free_ram: rd(16),
+        procs: rd(24),
+    }
+}
+
+/// Copy the kernel's `ps`-style process listing into `buf`; returns
+/// the number of bytes written.
+pub fn proclist(buf: &mut [u8]) -> isize {
+    syscall(SYS_PROCLIST, buf.as_mut_ptr() as usize, buf.len(), 0, 0)
+}
+
+/// Power the machine off (`cmd` 0) or reboot it (nonzero). Only returns
+/// on failure.
+pub fn reboot(restart: bool) -> isize {
+    syscall(SYS_REBOOT, usize::from(restart), 0, 0, 0)
 }
 
 /// Register an NCE affinity hint mask for this process.

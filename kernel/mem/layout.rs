@@ -15,6 +15,10 @@ pub const RAM_END: usize = RAM_START + RAM_SIZE;
 pub const KERNEL_BASE: usize = RAM_START;
 
 // MMIO regions (QEMU virt machine).
+/// sifive_test finisher: writing a magic word powers off / reboots the
+/// machine (used by kernel/power.rs).
+pub const TEST_BASE: usize = 0x0010_0000;
+pub const TEST_SIZE: usize = PAGE_SIZE;
 pub const UART0_BASE: usize = 0x1000_0000;
 pub const UART0_SIZE: usize = PAGE_SIZE;
 pub const VIRTIO_BASE: usize = 0x1000_1000;

@@ -443,6 +443,52 @@ pub fn sys_sched_getaffinity(tf: &mut TrapFrame) -> isize {
     len as isize
 }
 
+/// sysinfo(*info): fill a 32-byte LightOS sysinfo record —
+/// uptime_secs, total_ram, free_ram, procs (all u64, little-endian).
+pub fn sys_sysinfo(tf: &mut TrapFrame) -> isize {
+    let uptime = (crate::trap::TICKS.load(core::sync::atomic::Ordering::Relaxed) / 100) as u64;
+    let total = crate::mem::layout::RAM_SIZE as u64;
+    let free = (page::free_frames() * PAGE_SIZE) as u64;
+    let procs = process::count_active() as u64;
+
+    let mut buf = [0u8; 32];
+    buf[0..8].copy_from_slice(&uptime.to_le_bytes());
+    buf[8..16].copy_from_slice(&total.to_le_bytes());
+    buf[16..24].copy_from_slice(&free.to_le_bytes());
+    buf[24..32].copy_from_slice(&procs.to_le_bytes());
+
+    let (root_pa, _) = process::current_info();
+    if uaccess::copy_out(mmu::table_at(root_pa), tf.a0(), &buf).is_err() {
+        return EFAULT;
+    }
+    0
+}
+
+/// reboot(cmd): cmd 0 powers off, anything else reboots. Never returns
+/// on success.
+pub fn sys_reboot(tf: &mut TrapFrame) -> isize {
+    if tf.a0() == 0 {
+        crate::power::poweroff()
+    } else {
+        crate::power::reboot()
+    }
+}
+
+/// proclist(buf, len): copy a `ps`-style listing into the user buffer;
+/// returns the number of bytes written (truncated to `len`).
+pub fn sys_proclist(tf: &mut TrapFrame) -> isize {
+    let uva = tf.a0();
+    let len = tf.a1();
+    let text = process::listing();
+    let bytes = text.as_bytes();
+    let n = len.min(bytes.len());
+    let (root_pa, _) = process::current_info();
+    if uaccess::copy_out(mmu::table_at(root_pa), uva, &bytes[..n]).is_err() {
+        return EFAULT;
+    }
+    n as isize
+}
+
 /// munmap(addr, len): unmap and free anonymous pages.
 pub fn sys_munmap(tf: &mut TrapFrame) -> isize {
     let va = tf.a0();

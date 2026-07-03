@@ -19,12 +19,16 @@ pub const SYS_WRITE: usize = 64;
 pub const SYS_EXIT: usize = 93;
 pub const SYS_SCHED_SETAFFINITY: usize = 122;
 pub const SYS_SCHED_GETAFFINITY: usize = 123;
+pub const SYS_REBOOT: usize = 142;
 pub const SYS_GETPID: usize = 172;
+pub const SYS_SYSINFO: usize = 179;
 pub const SYS_MUNMAP: usize = 215;
 pub const SYS_CLONE: usize = 220;
 pub const SYS_EXECVE: usize = 221;
 pub const SYS_MMAP: usize = 222;
 pub const SYS_WAIT4: usize = 260;
+/// LightOS-specific: copy a `ps`-style process listing to userspace.
+pub const SYS_PROCLIST: usize = 500;
 
 pub const ENOSYS: isize = -38;
 
@@ -46,6 +50,9 @@ pub fn dispatch(tf: &mut TrapFrame) -> ! {
         SYS_WAIT4 => posix::sys_wait4(tf), // never returns
         SYS_MMAP => posix::sys_mmap(tf),
         SYS_MUNMAP => posix::sys_munmap(tf),
+        SYS_SYSINFO => posix::sys_sysinfo(tf),
+        SYS_REBOOT => posix::sys_reboot(tf), // may never return
+        SYS_PROCLIST => posix::sys_proclist(tf),
         _ => {
             uart_println!("syscall: unimplemented nr {}", nr);
             ENOSYS

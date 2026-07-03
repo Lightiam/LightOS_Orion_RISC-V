@@ -9,7 +9,7 @@ set -u
 
 KERNEL=${KERNEL:-target/riscv64gc-unknown-none-elf/debug/lightos}
 DISK=${DISK:-disk.img}
-TIMEOUT=${TIMEOUT:-25}
+TIMEOUT=${TIMEOUT:-35}
 OUT=$(mktemp)
 trap 'rm -f "$OUT"' EXIT
 
@@ -29,7 +29,13 @@ feed_input() {
     printf 'ls\n';                       sleep 1
     printf 'hello\n';                    sleep 1
     printf 'ncectl\n';                   sleep 1
-    printf 'exit\n';                     sleep 2
+    printf 'exit\n';                     sleep 2   # shell respawn
+    printf 'cd /\n';                     sleep 1
+    printf 'uname\n';                    sleep 1
+    printf 'free\n';                     sleep 1
+    printf 'uptime\n';                   sleep 1
+    printf 'ps\n';                       sleep 1
+    printf 'poweroff\n';                 sleep 2   # clean machine shutdown
 }
 
 feed_input | timeout --foreground "$TIMEOUT" qemu-system-riscv64 \
@@ -121,6 +127,14 @@ expect "idle->turbo correctly rejected"
 expect "nce0: state=turbo"
 expect "sched_setaffinity(nce0) -> 0"
 expect "\[phase 7\] milestone"
+
+# System commands: uname / free / uptime / ps / poweroff.
+expect "LightOS .* riscv64 QEMU-virt"    # uname
+expect "RAM .* KiB"                       # free
+expect "up .* seconds, .* processes"      # uptime
+expect "PID  PPID  STATE"                 # ps header
+expect "run.*/bin/sh"                     # ps lists the running shell
+expect "LightOS: powering off"            # poweroff reached the finisher
 
 if grep -qi "panic" "$OUT"; then
     echo "FAIL: kernel panicked"

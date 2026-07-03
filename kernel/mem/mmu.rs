@@ -171,6 +171,12 @@ pub fn kernel_page_table() -> &'static mut PageTable {
         PTE_R | PTE_W,
     )
     .expect("map PLIC");
+    root.map_range(
+        layout::TEST_BASE,
+        layout::TEST_BASE + layout::TEST_SIZE,
+        PTE_R | PTE_W,
+    )
+    .expect("map test finisher");
 
     root
 }

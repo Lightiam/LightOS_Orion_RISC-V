@@ -40,6 +40,19 @@ pub enum ProcState {
     Zombie,
 }
 
+impl ProcState {
+    /// Short label for `ps`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProcState::Ready => "ready",
+            ProcState::Running => "run",
+            ProcState::SleepChild => "wait",
+            ProcState::SleepConsole => "sleep",
+            ProcState::Zombie => "zombie",
+        }
+    }
+}
+
 /// What an fd >= 3 refers to.
 #[derive(Clone, Copy)]
 pub enum FdKind {
@@ -427,6 +440,37 @@ pub fn block_on_console(buf_uva: usize, len: usize) -> ! {
     }
     CURRENT.store(NO_PROC, Ordering::Relaxed);
     sched::schedule()
+}
+
+/// Number of live processes (any non-empty slot).
+pub fn count_active() -> usize {
+    PROCS.lock().slots.iter().filter(|s| s.is_some()).count()
+}
+
+/// Format a `ps`-style listing of all processes into a heap string.
+pub fn listing() -> alloc::string::String {
+    use core::fmt::Write;
+    let procs = PROCS.lock();
+    let mut out = alloc::string::String::new();
+    let _ = writeln!(out, "  PID  PPID  STATE   NAME");
+    for p in procs.slots.iter().flatten() {
+        let name_end = p.name.iter().position(|&b| b == 0).unwrap_or(p.name.len());
+        let name = core::str::from_utf8(&p.name[..name_end]).unwrap_or("?");
+        let ppid = if p.parent == NO_PROC {
+            0
+        } else {
+            procs.slots[p.parent].as_ref().map_or(0, |pp| pp.pid)
+        };
+        let _ = writeln!(
+            out,
+            "{:>5} {:>5}  {:<7} {}",
+            p.pid,
+            ppid,
+            p.state.as_str(),
+            name
+        );
+    }
+    out
 }
 
 /// (root_pa, pid) of the current process.

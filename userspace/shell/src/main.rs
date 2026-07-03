@@ -7,8 +7,8 @@
 #![no_main]
 
 use libc_shim::{
-    close, exec, exit, fork, getdents64, getpid, open, open_flags, print, println, read, wait,
-    write, O_DIRECTORY,
+    close, exec, exit, fork, getdents64, getpid, open, open_flags, print, println, proclist, read,
+    reboot, sysinfo, wait, write, O_DIRECTORY,
 };
 
 const MAX_LINE: usize = 256;
@@ -199,11 +199,47 @@ extern "C" fn main() -> i32 {
         match cmd {
             "" => {}
             "help" => {
-                println!("builtins: cd pwd ls cat echo help exit; anything else runs /bin/<cmd>")
+                println!("builtins: cd pwd ls cat echo clear uname uptime free ps");
+                println!("          help exit reboot poweroff; else runs /bin/<cmd>");
             }
             "exit" => exit(0),
             "pwd" => println!("{}", cwd.as_str()),
             "echo" => println!("{}", arg),
+            "clear" => print!("\x1b[2J\x1b[H"),
+            "uname" => println!("LightOS {} riscv64 QEMU-virt", env!("CARGO_PKG_VERSION")),
+            "uptime" => {
+                let si = sysinfo();
+                println!(
+                    "up {} seconds, {} processes running",
+                    si.uptime_secs, si.procs
+                );
+            }
+            "free" => {
+                let si = sysinfo();
+                let used = si.total_ram.saturating_sub(si.free_ram);
+                println!("         total       used       free");
+                println!(
+                    "RAM  {:>8} KiB {:>6} KiB {:>6} KiB",
+                    si.total_ram / 1024,
+                    used / 1024,
+                    si.free_ram / 1024
+                );
+            }
+            "ps" => {
+                let mut buf = [0u8; 1024];
+                let n = proclist(&mut buf);
+                if n > 0 {
+                    write(1, &buf[..n as usize]);
+                }
+            }
+            "poweroff" | "halt" => {
+                reboot(false);
+                println!("poweroff: not permitted");
+            }
+            "reboot" => {
+                reboot(true);
+                println!("reboot: not permitted");
+            }
             "cd" => {
                 let target = if arg.is_empty() { "/" } else { arg };
                 let mut resolved = [0u8; MAX_PATH];

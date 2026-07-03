@@ -10,6 +10,7 @@ extern crate alloc;
 
 pub mod lock;
 pub mod mem;
+pub mod trap;
 pub mod uart;
 
 use core::panic::PanicInfo;

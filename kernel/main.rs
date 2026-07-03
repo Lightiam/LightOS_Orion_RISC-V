@@ -8,7 +8,7 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use lightos::{halt, mem, uart, uart_println};
+use lightos::{mem, trap, uart, uart_println};
 
 core::arch::global_asm!(include_str!("../boot/entry.S"));
 
@@ -45,6 +45,12 @@ extern "C" fn mstart(hartid: usize, dtb: usize) -> ! {
         core::arch::asm!("csrw mideleg, {}", in(reg) all);
         core::arch::asm!("csrw sie, {}", in(reg) SIE_SEIE | SIE_STIE | SIE_SSIE);
 
+        // Let S-mode read cycle/time/instret, and enable the Sstc
+        // extension (menvcfg.STCE, bit 63) so S-mode can program
+        // stimecmp directly — no M-mode timer trampoline needed.
+        core::arch::asm!("csrw mcounteren, {}", in(reg) 7_usize);
+        core::arch::asm!("csrs 0x30a, {}", in(reg) 1_usize << 63);
+
         // PMP entry 0: allow S-mode access to all physical memory
         // (TOR, RWX, top = 2^56). Without this, the first S-mode fetch
         // faults back into M-mode.
@@ -77,7 +83,20 @@ extern "C" fn kinit(hartid: usize, dtb: usize) -> ! {
     heap_smoke_test();
     uart_println!("[phase 1] milestone: MMU on, kernel heap OK");
 
-    halt()
+    trap::init();
+
+    // Idle loop: sleep until an interrupt, surface any console input.
+    loop {
+        wait_for_interrupt();
+        while let Some(byte) = uart::read_byte() {
+            uart_println!("console: got {:?}", byte as char);
+        }
+    }
+}
+
+/// `wfi` with interrupts enabled — wakes on timer/external IRQs.
+fn wait_for_interrupt() {
+    unsafe { core::arch::asm!("wfi") }
 }
 
 /// Exercise the global allocator and the live Sv39 translation.

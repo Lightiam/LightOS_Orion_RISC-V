@@ -15,13 +15,15 @@ trap 'rm -f "$OUT"' EXIT
 
 [ -f "$DISK" ] || dd if=/dev/zero of="$DISK" bs=1M count=32 status=none
 
-timeout --foreground "$TIMEOUT" qemu-system-riscv64 \
+# Feed a console character a few seconds after boot to exercise the
+# IRQ-driven UART receive path (Phase 2+).
+(sleep 4; printf 'Z') | timeout --foreground "$TIMEOUT" qemu-system-riscv64 \
     -machine virt -cpu rv64 -smp 4 -m 128M \
     -bios none -kernel "$KERNEL" \
     -drive file="$DISK",format=raw,id=hd0 \
     -device virtio-blk-device,drive=hd0 \
     -serial stdio -display none \
-    </dev/null >"$OUT" 2>&1
+    >"$OUT" 2>&1
 
 echo "---- UART output ----"
 cat "$OUT"
@@ -40,6 +42,9 @@ expect() {
 expect "LightOS booting..."
 expect "\[phase 0\] milestone"
 expect "\[phase 1\] milestone"
+expect "timer: 100 ticks"
+expect "\[phase 2\] milestone"
+expect "console: got 'Z'"
 
 if grep -qi "panic" "$OUT"; then
     echo "FAIL: kernel panicked"

@@ -96,3 +96,54 @@ impl fmt::Write for Uart {
 pub fn init() {
     UART.lock().init();
 }
+
+const RX_BUF_SIZE: usize = 256;
+
+/// Console input ring buffer, filled by the UART RX interrupt.
+/// Lock invariant: independent of the UART register lock; the IRQ path
+/// takes UART then RX_BUF, and readers take only RX_BUF, so there is
+/// no ordering cycle.
+static RX_BUF: SpinLock<RxRing> = SpinLock::new(RxRing {
+    buf: [0; RX_BUF_SIZE],
+    head: 0,
+    tail: 0,
+});
+
+struct RxRing {
+    buf: [u8; RX_BUF_SIZE],
+    head: usize, // next write
+    tail: usize, // next read
+}
+
+/// UART interrupt service: drain the RX FIFO into the ring buffer and
+/// echo. Called from the PLIC external-interrupt path.
+pub fn handle_interrupt() {
+    let mut uart = UART.lock();
+    while let Some(byte) = uart.get() {
+        // Echo (translate CR from terminals to NL).
+        let byte = if byte == b'\r' { b'\n' } else { byte };
+        if byte == b'\n' {
+            uart.put(b'\r');
+        }
+        uart.put(byte);
+        let mut rx = RX_BUF.lock();
+        let next = (rx.head + 1) % RX_BUF_SIZE;
+        if next != rx.tail {
+            let head = rx.head;
+            rx.buf[head] = byte;
+            rx.head = next;
+        } // else: buffer full, drop input
+    }
+}
+
+/// Pop one byte of console input, if any.
+pub fn read_byte() -> Option<u8> {
+    let mut rx = RX_BUF.lock();
+    if rx.head == rx.tail {
+        None
+    } else {
+        let byte = rx.buf[rx.tail];
+        rx.tail = (rx.tail + 1) % RX_BUF_SIZE;
+        Some(byte)
+    }
+}

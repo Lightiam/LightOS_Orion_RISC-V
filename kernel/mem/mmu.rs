@@ -15,7 +15,6 @@ pub const PTE_G: u64 = 1 << 5;
 pub const PTE_A: u64 = 1 << 6;
 pub const PTE_D: u64 = 1 << 7;
 
-const PTE_FLAG_MASK: u64 = 0x3ff;
 const SATP_MODE_SV39: usize = 8 << 60;
 
 /// One page table: 512 eight-byte entries, exactly one 4 KiB page.

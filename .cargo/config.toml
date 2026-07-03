@@ -1,0 +1,8 @@
+# Kernel build target. The linker script is injected by build.rs (not
+# here) so nested workspaces (userspace/) don't inherit it — cargo
+# merges rustflags from parent directory configs.
+[build]
+target = "riscv64gc-unknown-none-elf"
+
+[target.riscv64gc-unknown-none-elf]
+rustflags = ["-Cforce-frame-pointers=yes"]

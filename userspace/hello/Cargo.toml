@@ -1,0 +1,9 @@
+[package]
+name = "hello"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "exec() test target: prints and exits"
+
+[dependencies]
+libc_shim = { path = "../libc_shim" }

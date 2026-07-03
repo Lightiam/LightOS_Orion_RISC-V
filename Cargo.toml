@@ -1,0 +1,24 @@
+[package]
+name = "lightos"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "LightOS — a royalty-free, UNIX-style RISC-V (RV64GC) kernel for LightRail AI NCE hardware"
+
+[lib]
+name = "lightos"
+path = "kernel/lib.rs"
+
+[[bin]]
+name = "lightos"
+path = "kernel/main.rs"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+
+[dependencies]

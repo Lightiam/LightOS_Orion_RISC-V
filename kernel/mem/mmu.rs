@@ -84,7 +84,9 @@ impl PageTable {
     pub fn map(&mut self, va: usize, pa: usize, flags: u64) -> Result<(), &'static str> {
         debug_assert_eq!(va % PAGE_SIZE, 0, "map: unaligned va");
         debug_assert_eq!(pa % PAGE_SIZE, 0, "map: unaligned pa");
-        let pte = self.walk(va, true).ok_or("mmu: out of memory for page table")?;
+        let pte = self
+            .walk(va, true)
+            .ok_or("mmu: out of memory for page table")?;
         unsafe {
             if *pte & PTE_V != 0 {
                 return Err("mmu: va already mapped");

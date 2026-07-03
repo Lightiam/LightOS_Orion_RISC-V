@@ -10,13 +10,13 @@
 
 use crate::elf;
 use crate::fs;
+use crate::lock::SpinLock;
 use crate::mem::layout::PAGE_SIZE;
 use crate::mem::mmu::{self, PageTable, PTE_R, PTE_U, PTE_W};
 use crate::mem::{page, uaccess};
 use crate::sched::{self, CURRENT};
 use crate::trap::context::TrapFrame;
 use crate::uart_println;
-use crate::lock::SpinLock;
 use core::cell::UnsafeCell;
 use core::sync::atomic::Ordering;
 
@@ -281,11 +281,9 @@ pub fn exit_current(code: i32) -> ! {
             .slots
             .iter()
             .position(|s| s.as_ref().is_some_and(|p| p.pid == 1));
-        for slot in procs.slots.iter_mut() {
-            if let Some(p) = slot {
-                if p.parent == cur {
-                    p.parent = init_slot.unwrap_or(NO_PROC);
-                }
+        for p in procs.slots.iter_mut().flatten() {
+            if p.parent == cur {
+                p.parent = init_slot.unwrap_or(NO_PROC);
             }
         }
 
@@ -323,7 +321,7 @@ fn complete_wait(procs: &mut ProcTable, parent_slot: usize, child_slot: usize) {
 
     if status_uva != 0 {
         let parent_root = procs.slots[parent_slot].as_ref().expect("reap").root_pa;
-        let wstatus = ((code & 0xff) << 8) as i32;
+        let wstatus = (code & 0xff) << 8;
         let _ = uaccess::copy_out(
             mmu::table_at(parent_root),
             status_uva,
@@ -381,11 +379,10 @@ pub fn wait_current(status_uva: usize) -> ! {
 /// path.
 pub fn wake_console_reader() {
     let mut procs = PROCS.lock();
-    let Some(slot) = procs
-        .slots
-        .iter()
-        .position(|s| s.as_ref().is_some_and(|p| p.state == ProcState::SleepConsole))
-    else {
+    let Some(slot) = procs.slots.iter().position(|s| {
+        s.as_ref()
+            .is_some_and(|p| p.state == ProcState::SleepConsole)
+    }) else {
         return;
     };
 

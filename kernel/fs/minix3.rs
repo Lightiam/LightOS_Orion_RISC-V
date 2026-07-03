@@ -165,11 +165,7 @@ impl MinixFs {
     }
 
     /// Iterate directory entries: `f(name, ino)`.
-    pub fn readdir(
-        &self,
-        dir: &Inode,
-        mut f: impl FnMut(&str, u32),
-    ) -> Result<(), &'static str> {
+    pub fn readdir(&self, dir: &Inode, mut f: impl FnMut(&str, u32)) -> Result<(), &'static str> {
         if !dir.is_dir() {
             return Err("minix3: not a directory");
         }

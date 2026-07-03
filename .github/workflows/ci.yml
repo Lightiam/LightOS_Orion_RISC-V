@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  boot-test:
+    name: Build + QEMU boot test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU and Minix tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-misc util-linux python3
+
+      - name: Install Rust target
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup target add riscv64gc-unknown-none-elf
+
+      - name: Format check
+        run: |
+          cargo fmt --all -- --check
+          cd userspace && cargo fmt --all -- --check
+
+      - name: Build (kernel + userspace + rootfs image)
+        run: make build disk
+
+      - name: QEMU boot test (all phase milestones)
+        run: make test
+
+      - name: Upload UART transcript on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-log
+          path: disk.img
+          if-no-files-found: ignore

@@ -9,7 +9,7 @@
 #![allow(unsafe_code)] // DMA descriptors and MMIO
 
 use super::{
-    reg_read, reg_write, VirtQueue, DESC_F_NEXT, DESC_F_WRITE, CONFIG, INTERRUPT_ACK,
+    reg_read, reg_write, VirtQueue, CONFIG, DESC_F_NEXT, DESC_F_WRITE, INTERRUPT_ACK,
     INTERRUPT_STATUS, QUEUE_NOTIFY,
 };
 use crate::lock::SpinLock;

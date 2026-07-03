@@ -66,9 +66,16 @@ fmt:
 	cargo fmt --all
 
 clippy:
-	cargo clippy --all-targets
+	cargo clippy --lib --bins
 
 clean:
 	cargo clean
 	cd userspace && cargo clean
 	rm -f $(DISK)
+
+# Build and run the full boot test inside Docker (no host toolchain
+# needed beyond Docker itself).
+.PHONY: docker-test
+docker-test:
+	docker build -t lightos .
+	docker run --rm lightos

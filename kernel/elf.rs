@@ -76,7 +76,7 @@ pub fn load(image: &[u8], root: &mut PageTable) -> Result<LoadedElf, &'static st
         if filesz > memsz || offset + filesz > image.len() {
             return Err("elf: malformed segment");
         }
-        if vaddr % PAGE_SIZE != 0 {
+        if !vaddr.is_multiple_of(PAGE_SIZE) {
             return Err("elf: unaligned segment (link with -zmax-page-size=4096)");
         }
 

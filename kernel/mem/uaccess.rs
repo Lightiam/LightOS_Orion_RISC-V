@@ -26,7 +26,9 @@ pub fn copy_out(root: &mut PageTable, uva: usize, src: &[u8]) -> Result<(), &'st
     let mut done = 0;
     while done < src.len() {
         let va = uva + done;
-        let pa = root.virt_to_phys(va).ok_or("uaccess: unmapped user address")?;
+        let pa = root
+            .virt_to_phys(va)
+            .ok_or("uaccess: unmapped user address")?;
         let n = core::cmp::min(PAGE_SIZE - (va % PAGE_SIZE), src.len() - done);
         unsafe {
             core::ptr::copy_nonoverlapping(src.as_ptr().add(done), pa as *mut u8, n);
@@ -42,7 +44,9 @@ pub fn copy_in(root: &mut PageTable, uva: usize, dst: &mut [u8]) -> Result<(), &
     let mut done = 0;
     while done < dst.len() {
         let va = uva + done;
-        let pa = root.virt_to_phys(va).ok_or("uaccess: unmapped user address")?;
+        let pa = root
+            .virt_to_phys(va)
+            .ok_or("uaccess: unmapped user address")?;
         let n = core::cmp::min(PAGE_SIZE - (va % PAGE_SIZE), dst.len() - done);
         unsafe {
             core::ptr::copy_nonoverlapping(pa as *const u8, dst.as_mut_ptr().add(done), n);

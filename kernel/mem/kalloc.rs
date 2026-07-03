@@ -45,7 +45,10 @@ static GLOBAL: KernelAllocator = KernelAllocator;
 
 /// Effective block size for a layout: padded to 16 bytes, min 16.
 fn block_size(layout: Layout) -> usize {
-    core::cmp::max(MIN_BLOCK, (layout.size() + MIN_BLOCK - 1) & !(MIN_BLOCK - 1))
+    core::cmp::max(
+        MIN_BLOCK,
+        (layout.size() + MIN_BLOCK - 1) & !(MIN_BLOCK - 1),
+    )
 }
 
 impl FreeList {
@@ -146,6 +149,7 @@ pub fn init() {
     let mem = page::page_alloc(INITIAL_HEAP_PAGES)
         .expect("kalloc: not enough physical memory for initial kernel heap");
     unsafe {
-        HEAP.lock().insert(mem as usize, INITIAL_HEAP_PAGES * PAGE_SIZE);
+        HEAP.lock()
+            .insert(mem as usize, INITIAL_HEAP_PAGES * PAGE_SIZE);
     }
 }

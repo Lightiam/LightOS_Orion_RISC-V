@@ -45,7 +45,9 @@ fn nce_write(fd: usize, uva: usize, len: usize) -> isize {
     let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
     let kind = {
         let procs = process::PROCS.lock();
-        let p = procs.slots[cur].as_ref().expect("write: no current process");
+        let p = procs.slots[cur]
+            .as_ref()
+            .expect("write: no current process");
         match p.files.get(fd - 3).copied().flatten() {
             Some(f) => f.kind,
             None => return EBADF,
@@ -180,7 +182,9 @@ pub fn sys_close(tf: &mut TrapFrame) -> isize {
     }
     let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
     let mut procs = process::PROCS.lock();
-    let p = procs.slots[cur].as_mut().expect("close: no current process");
+    let p = procs.slots[cur]
+        .as_mut()
+        .expect("close: no current process");
     match p.files.get_mut(fd as usize - 3) {
         Some(slot @ Some(_)) => {
             *slot = None;
@@ -275,7 +279,9 @@ pub fn sys_getdents64(tf: &mut TrapFrame) -> isize {
     let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
     let (ino, start_index) = {
         let procs = process::PROCS.lock();
-        let p = procs.slots[cur].as_ref().expect("getdents: no current process");
+        let p = procs.slots[cur]
+            .as_ref()
+            .expect("getdents: no current process");
         match p.files.get(fd - 3).copied().flatten() {
             Some(process::OpenFile {
                 kind: process::FdKind::File { ino },
@@ -315,7 +321,9 @@ pub fn sys_getdents64(tf: &mut TrapFrame) -> isize {
         if out_len + reclen > out.len().min(len) {
             break; // buffer full; picked up next call
         }
-        let entry_is_dir = crate::fs::inode(entry_ino).map(|i| i.is_dir()).unwrap_or(false);
+        let entry_is_dir = crate::fs::inode(entry_ino)
+            .map(|i| i.is_dir())
+            .unwrap_or(false);
         let seq = (start_index + consumed + 1) as u64;
         out[out_len..out_len + 8].copy_from_slice(&(entry_ino as u64).to_le_bytes());
         out[out_len + 8..out_len + 16].copy_from_slice(&seq.to_le_bytes());
@@ -335,7 +343,9 @@ pub fn sys_getdents64(tf: &mut TrapFrame) -> isize {
     }
 
     let mut procs = process::PROCS.lock();
-    let p = procs.slots[cur].as_mut().expect("getdents: no current process");
+    let p = procs.slots[cur]
+        .as_mut()
+        .expect("getdents: no current process");
     if let Some(Some(f)) = p.files.get_mut(fd - 3) {
         f.pos = start_index + consumed;
     }
@@ -393,7 +403,10 @@ pub fn sys_mmap(tf: &mut TrapFrame) -> isize {
         let Some(frame) = page::page_alloc(1) else {
             return ENOMEM;
         };
-        if root.map(va + i * PAGE_SIZE, frame as usize, PTE_U | PTE_R | PTE_W).is_err() {
+        if root
+            .map(va + i * PAGE_SIZE, frame as usize, PTE_U | PTE_R | PTE_W)
+            .is_err()
+        {
             return ENOMEM;
         }
     }
@@ -434,7 +447,7 @@ pub fn sys_sched_getaffinity(tf: &mut TrapFrame) -> isize {
 pub fn sys_munmap(tf: &mut TrapFrame) -> isize {
     let va = tf.a0();
     let len = tf.a1();
-    if va % PAGE_SIZE != 0 || len == 0 {
+    if !va.is_multiple_of(PAGE_SIZE) || len == 0 {
         return EINVAL;
     }
     let (root_pa, _) = process::current_info();

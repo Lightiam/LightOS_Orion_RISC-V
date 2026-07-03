@@ -58,7 +58,13 @@ pub fn write(fd: i32, buf: &[u8]) -> isize {
 }
 
 pub fn read(fd: i32, buf: &mut [u8]) -> isize {
-    syscall(SYS_READ, fd as usize, buf.as_mut_ptr() as usize, buf.len(), 0)
+    syscall(
+        SYS_READ,
+        fd as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+    )
 }
 
 /// openat O_DIRECTORY: fail unless the path is a directory.
@@ -73,12 +79,24 @@ pub fn open_flags(path: &str, flags: usize) -> i32 {
     let mut tmp = [0u8; 128];
     let n = path.len().min(126);
     tmp[..n].copy_from_slice(&path.as_bytes()[..n]);
-    syscall(SYS_OPENAT, -100isize as usize, tmp.as_ptr() as usize, flags, 0) as i32
+    syscall(
+        SYS_OPENAT,
+        -100isize as usize,
+        tmp.as_ptr() as usize,
+        flags,
+        0,
+    ) as i32
 }
 
 /// Fill `buf` with linux_dirent64 records; returns bytes or 0 at end.
 pub fn getdents64(fd: i32, buf: &mut [u8]) -> isize {
-    syscall(SYS_GETDENTS64, fd as usize, buf.as_mut_ptr() as usize, buf.len(), 0)
+    syscall(
+        SYS_GETDENTS64,
+        fd as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+    )
 }
 
 pub fn close(fd: i32) -> isize {
@@ -111,7 +129,13 @@ pub fn exec(path: &str) -> isize {
 /// Wait for any child to exit; returns its pid and stores the wstatus
 /// (exit code << 8, wait(2) convention).
 pub fn wait(status: &mut i32) -> i32 {
-    syscall(SYS_WAIT4, -1isize as usize, status as *mut i32 as usize, 0, 0) as i32
+    syscall(
+        SYS_WAIT4,
+        -1isize as usize,
+        status as *mut i32 as usize,
+        0,
+        0,
+    ) as i32
 }
 
 /// Register an NCE affinity hint mask for this process.

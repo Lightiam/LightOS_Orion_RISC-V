@@ -32,7 +32,7 @@ impl Cwd {
 
     /// Resolve `path` against the cwd into `out`; handles "..", ".".
     fn resolve<'a>(&self, path: &str, out: &'a mut [u8; MAX_PATH]) -> &'a str {
-        let mut len = 0usize;
+        let mut len: usize;
         let absolute = path.starts_with('/');
         if !absolute {
             len = self.len;
@@ -87,9 +87,7 @@ fn read_line(buf: &mut [u8; MAX_LINE]) -> usize {
             b'\n' => return len,
             0x7f | 0x08 => {
                 // backspace: the kernel already echoed it; best-effort
-                if len > 0 {
-                    len -= 1;
-                }
+                len = len.saturating_sub(1);
             }
             b => {
                 if len < MAX_LINE - 1 {
@@ -115,8 +113,7 @@ fn cmd_ls(path: &str) {
         }
         let mut off = 0usize;
         while off + 19 < n as usize {
-            let reclen =
-                u16::from_le_bytes([buf[off + 16], buf[off + 17]]) as usize;
+            let reclen = u16::from_le_bytes([buf[off + 16], buf[off + 17]]) as usize;
             let dtype = buf[off + 18];
             let name_end = (off + 19..off + reclen)
                 .find(|&i| buf[i] == 0)

@@ -13,7 +13,7 @@ TIMEOUT=${TIMEOUT:-10}
 OUT=$(mktemp)
 trap 'rm -f "$OUT"' EXIT
 
-[ -f "$DISK" ] || dd if=/dev/zero of="$DISK" bs=1M count=32 status=none
+[ -f "$DISK" ] || { echo "missing $DISK — run 'make test' (builds the rootfs image)"; exit 1; }
 
 # Feed a console character a few seconds after boot to exercise the
 # IRQ-driven UART receive path (Phase 2+).
@@ -68,6 +68,13 @@ expect "hello: exec works, running as pid"
 expect "init: exec'd child pid .* exited with code 42"
 expect "\[phase 4\] milestone"
 expect "init: blocking read(0) returned 'Z'"
+
+# Phase 5: virtio-blk + Minix3 root + /etc/motd + shell launch.
+expect "virtio-blk: capacity"
+expect "vfs: mounted Minix3 root"
+expect "Welcome to LightOS"
+expect "\[phase 5\] milestone"
+expect "LightOS sh v0.1"
 
 if grep -qi "panic" "$OUT"; then
     echo "FAIL: kernel panicked"

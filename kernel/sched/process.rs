@@ -9,10 +9,10 @@
 #![allow(unsafe_code)] // trap-frame array access and page-table plumbing
 
 use crate::elf;
+use crate::fs;
 use crate::mem::layout::PAGE_SIZE;
 use crate::mem::mmu::{self, PageTable, PTE_R, PTE_U, PTE_W};
 use crate::mem::{page, uaccess};
-use crate::prog;
 use crate::sched::{self, CURRENT};
 use crate::trap::context::TrapFrame;
 use crate::uart_println;
@@ -40,6 +40,15 @@ pub enum ProcState {
     Zombie,
 }
 
+/// An open file-backed descriptor (fds 0-2 are the console and have
+/// no entry here; file fds start at 3).
+#[derive(Clone, Copy)]
+pub struct OpenFile {
+    pub ino: u32,
+    /// Byte offset for files, entry index for directories.
+    pub pos: usize,
+}
+
 pub struct Process {
     pub pid: usize,
     pub state: ProcState,
@@ -56,6 +65,8 @@ pub struct Process {
     pub next_mmap: usize,
     pub brk: usize,
     pub name: [u8; 16],
+    /// Open files, indexed by fd - 3.
+    pub files: alloc::vec::Vec<Option<OpenFile>>,
 }
 
 pub struct ProcTable {
@@ -113,8 +124,8 @@ fn build_address_space(image: &[u8]) -> Result<(usize, usize, usize), &'static s
 
 /// Create a new process from a program image (used for init).
 pub fn spawn(name: &str) -> Result<usize, &'static str> {
-    let image = prog::lookup(name).ok_or("proc: no such program")?;
-    let (root_pa, entry, brk) = build_address_space(image)?;
+    let image = fs::load_program(name).ok_or("proc: no such program")?;
+    let (root_pa, entry, brk) = build_address_space(&image)?;
 
     let mut procs = PROCS.lock();
     let slot = procs
@@ -145,6 +156,7 @@ pub fn spawn(name: &str) -> Result<usize, &'static str> {
         next_mmap: MMAP_BASE,
         brk,
         name: name_buf,
+        files: alloc::vec::Vec::new(),
     });
     Ok(pid)
 }
@@ -158,9 +170,9 @@ pub fn fork_current(tf: &TrapFrame) -> isize {
     let Some(slot) = procs.slots.iter().position(|s| s.is_none()) else {
         return -11; // EAGAIN
     };
-    let (parent_root, next_mmap, brk, name) = {
+    let (parent_root, next_mmap, brk, name, files) = {
         let p = procs.slots[cur].as_ref().expect("fork: no current process");
-        (p.root_pa, p.next_mmap, p.brk, p.name)
+        (p.root_pa, p.next_mmap, p.brk, p.name, p.files.clone())
     };
 
     let Some(child_root) = mmu::new_user_root() else {
@@ -193,6 +205,7 @@ pub fn fork_current(tf: &TrapFrame) -> isize {
         next_mmap,
         brk,
         name,
+        files,
     });
     pid as isize
 }
@@ -200,10 +213,10 @@ pub fn fork_current(tf: &TrapFrame) -> isize {
 /// execve(): replace the current image. Builds the new address space
 /// first so a failed exec leaves the caller intact.
 pub fn exec_current(tf: &mut TrapFrame, name: &str) -> isize {
-    let Some(image) = prog::lookup(name) else {
+    let Some(image) = fs::load_program(name) else {
         return -2; // ENOENT
     };
-    let (new_root, entry, brk) = match build_address_space(image) {
+    let (new_root, entry, brk) = match build_address_space(&image) {
         Ok(v) => v,
         Err(e) => {
             uart_println!("exec {:?}: {}", name, e);

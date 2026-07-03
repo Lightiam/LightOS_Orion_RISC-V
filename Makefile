@@ -26,10 +26,27 @@ userspace:
 build: userspace
 	cargo build
 
-$(DISK):
-	dd if=/dev/zero of=$(DISK) bs=1M count=32 status=none
+# Root filesystem: Minix3 image with /etc/motd and userspace binaries.
+USER_TARGET := userspace/target/riscv64gc-unknown-none-elf/release
+ROOTFS_STAGE := target/rootfs
 
-run: build $(DISK)
+$(DISK): userspace scripts/mkfs_minix3.py $(wildcard rootfs/**/*)
+	rm -rf $(ROOTFS_STAGE)
+	mkdir -p $(ROOTFS_STAGE)/bin
+	cp -r rootfs/. $(ROOTFS_STAGE)/
+	cp $(USER_TARGET)/init $(ROOTFS_STAGE)/bin/init
+	cp $(USER_TARGET)/hello $(ROOTFS_STAGE)/bin/hello
+	cp $(USER_TARGET)/sh $(ROOTFS_STAGE)/bin/sh
+	chmod +x $(ROOTFS_STAGE)/bin/*
+	python3 scripts/mkfs_minix3.py $(DISK) $(ROOTFS_STAGE) 8192
+	fsck.minix -f $(DISK)
+
+.PHONY: disk
+disk:
+	rm -f $(DISK)
+	$(MAKE) $(DISK)
+
+run: build disk
 	qemu-system-riscv64 $(QEMU_ARGS)
 
 # Non-interactive boot check: boot for a few seconds, capture UART,

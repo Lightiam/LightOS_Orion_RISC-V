@@ -1,0 +1,9 @@
+[package]
+name = "sh"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "LightOS shell: cd, pwd, ls, cat, echo, exec, exit"
+
+[dependencies]
+libc_shim = { path = "../libc_shim" }

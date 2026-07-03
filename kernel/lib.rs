@@ -8,10 +8,11 @@
 
 extern crate alloc;
 
+pub mod drivers;
 pub mod elf;
+pub mod fs;
 pub mod lock;
 pub mod mem;
-pub mod prog;
 pub mod sched;
 pub mod syscall;
 pub mod trap;

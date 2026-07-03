@@ -13,6 +13,7 @@ use crate::uart_println;
 
 pub const SYS_OPENAT: usize = 56;
 pub const SYS_CLOSE: usize = 57;
+pub const SYS_GETDENTS64: usize = 61;
 pub const SYS_READ: usize = 63;
 pub const SYS_WRITE: usize = 64;
 pub const SYS_EXIT: usize = 93;
@@ -33,6 +34,7 @@ pub fn dispatch(tf: &mut TrapFrame) -> ! {
         SYS_READ => posix::sys_read(tf), // may block (never returns)
         SYS_OPENAT => posix::sys_openat(tf),
         SYS_CLOSE => posix::sys_close(tf),
+        SYS_GETDENTS64 => posix::sys_getdents64(tf),
         SYS_EXIT => posix::sys_exit(tf), // never returns
         SYS_GETPID => posix::sys_getpid(),
         SYS_CLONE => posix::sys_fork(tf),

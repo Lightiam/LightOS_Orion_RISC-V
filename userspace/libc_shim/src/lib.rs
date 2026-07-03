@@ -10,6 +10,7 @@ use core::fmt;
 // Linux riscv64 syscall numbers (the subset LightOS implements).
 pub const SYS_OPENAT: usize = 56;
 pub const SYS_CLOSE: usize = 57;
+pub const SYS_GETDENTS64: usize = 61;
 pub const SYS_READ: usize = 63;
 pub const SYS_WRITE: usize = 64;
 pub const SYS_EXIT: usize = 93;
@@ -58,12 +59,24 @@ pub fn read(fd: i32, buf: &mut [u8]) -> isize {
     syscall(SYS_READ, fd as usize, buf.as_mut_ptr() as usize, buf.len(), 0)
 }
 
+/// openat O_DIRECTORY: fail unless the path is a directory.
+pub const O_DIRECTORY: usize = 0o200000;
+
 pub fn open(path: &str) -> i32 {
-    // openat(AT_FDCWD, path, flags=0): path must be NUL-terminated.
+    open_flags(path, 0)
+}
+
+pub fn open_flags(path: &str, flags: usize) -> i32 {
+    // openat(AT_FDCWD, path, flags): path must be NUL-terminated.
     let mut tmp = [0u8; 128];
     let n = path.len().min(126);
     tmp[..n].copy_from_slice(&path.as_bytes()[..n]);
-    syscall(SYS_OPENAT, -100isize as usize, tmp.as_ptr() as usize, 0, 0) as i32
+    syscall(SYS_OPENAT, -100isize as usize, tmp.as_ptr() as usize, flags, 0) as i32
+}
+
+/// Fill `buf` with linux_dirent64 records; returns bytes or 0 at end.
+pub fn getdents64(fd: i32, buf: &mut [u8]) -> isize {
+    syscall(SYS_GETDENTS64, fd as usize, buf.as_mut_ptr() as usize, buf.len(), 0)
 }
 
 pub fn close(fd: i32) -> isize {

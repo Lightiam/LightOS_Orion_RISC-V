@@ -45,6 +45,9 @@ pub fn sys_read(tf: &mut TrapFrame) -> isize {
     let fd = tf.a0() as isize;
     let uva = tf.a1();
     let len = tf.a2();
+    if fd >= 3 {
+        return file_read(fd as usize, uva, len);
+    }
     if fd != 0 {
         return EBADF;
     }
@@ -76,13 +79,185 @@ pub fn sys_read(tf: &mut TrapFrame) -> isize {
     n as isize
 }
 
-/// openat/close: no VFS until Phase 5.
-pub fn sys_openat(_tf: &mut TrapFrame) -> isize {
-    super::ENOSYS
+const ENOENT: isize = -2;
+const ENOTDIR: isize = -20;
+const EISDIR: isize = -21;
+
+/// LightOS accepts this openat flag (matches Linux riscv64 value).
+const O_DIRECTORY: usize = 0o200000;
+
+/// openat(dirfd, path, flags): dirfd is ignored — all paths resolve
+/// from the root (processes track their own cwd in userspace for v1).
+pub fn sys_openat(tf: &mut TrapFrame) -> isize {
+    let (root_pa, _) = process::current_info();
+    let mut buf = [0u8; 128];
+    let Ok(path) = uaccess::copy_in_cstr(mmu::table_at(root_pa), tf.a1(), &mut buf) else {
+        return EFAULT;
+    };
+    let flags = tf.a2();
+
+    let inode = match crate::fs::lookup(path) {
+        Ok(Some(inode)) => inode,
+        Ok(None) => return ENOENT,
+        Err(_) => return ENOENT,
+    };
+    if flags & O_DIRECTORY != 0 && !inode.is_dir() {
+        return ENOTDIR;
+    }
+
+    let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
+    let mut procs = process::PROCS.lock();
+    let p = procs.slots[cur].as_mut().expect("open: no current process");
+    let file = process::OpenFile {
+        ino: inode.ino,
+        pos: 0,
+    };
+    // Reuse a closed slot or append.
+    let idx = match p.files.iter().position(|f| f.is_none()) {
+        Some(i) => {
+            p.files[i] = Some(file);
+            i
+        }
+        None => {
+            p.files.push(Some(file));
+            p.files.len() - 1
+        }
+    };
+    (idx + 3) as isize
 }
 
-pub fn sys_close(_tf: &mut TrapFrame) -> isize {
-    super::ENOSYS
+pub fn sys_close(tf: &mut TrapFrame) -> isize {
+    let fd = tf.a0() as isize;
+    if fd < 3 {
+        return 0; // console fds are never really closed
+    }
+    let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
+    let mut procs = process::PROCS.lock();
+    let p = procs.slots[cur].as_mut().expect("close: no current process");
+    match p.files.get_mut(fd as usize - 3) {
+        Some(slot @ Some(_)) => {
+            *slot = None;
+            0
+        }
+        _ => EBADF,
+    }
+}
+
+/// Read from a file-backed fd. Returns bytes read (0 at EOF).
+fn file_read(fd: usize, uva: usize, len: usize) -> isize {
+    let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
+    let (ino, pos) = {
+        let procs = process::PROCS.lock();
+        let p = procs.slots[cur].as_ref().expect("read: no current process");
+        match p.files.get(fd - 3).copied().flatten() {
+            Some(f) => (f.ino, f.pos),
+            None => return EBADF,
+        }
+    };
+    let Ok(inode) = crate::fs::inode(ino) else {
+        return EBADF;
+    };
+    if inode.is_dir() {
+        return EISDIR;
+    }
+
+    let (root_pa, _) = process::current_info();
+    let root = mmu::table_at(root_pa);
+    let mut chunk = [0u8; 512];
+    let mut done = 0;
+    while done < len {
+        let n = chunk.len().min(len - done);
+        let got = match crate::fs::read_at(&inode, pos + done, &mut chunk[..n]) {
+            Ok(g) => g,
+            Err(_) => return -5, // EIO
+        };
+        if got == 0 {
+            break;
+        }
+        if uaccess::copy_out(root, uva + done, &chunk[..got]).is_err() {
+            return EFAULT;
+        }
+        done += got;
+        if got < n {
+            break;
+        }
+    }
+
+    let mut procs = process::PROCS.lock();
+    let p = procs.slots[cur].as_mut().expect("read: no current process");
+    if let Some(Some(f)) = p.files.get_mut(fd - 3) {
+        f.pos += done;
+    }
+    done as isize
+}
+
+/// getdents64(fd, buf, len): fill Linux-format dirent64 records.
+pub fn sys_getdents64(tf: &mut TrapFrame) -> isize {
+    let fd = tf.a0();
+    let uva = tf.a1();
+    let len = tf.a2();
+    if fd < 3 {
+        return EBADF;
+    }
+
+    let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
+    let (ino, start_index) = {
+        let procs = process::PROCS.lock();
+        let p = procs.slots[cur].as_ref().expect("getdents: no current process");
+        match p.files.get(fd - 3).copied().flatten() {
+            Some(f) => (f.ino, f.pos),
+            None => return EBADF,
+        }
+    };
+    let Ok(dir) = crate::fs::inode(ino) else {
+        return EBADF;
+    };
+    if !dir.is_dir() {
+        return ENOTDIR;
+    }
+
+    // Collect entries after start_index into dirent64 records.
+    let mut out = [0u8; 512];
+    let mut out_len = 0usize;
+    let mut index = 0usize;
+    let mut consumed = 0usize;
+    let collect = crate::fs::readdir(&dir, |name, entry_ino| {
+        if index < start_index {
+            index += 1;
+            return;
+        }
+        let reclen = (19 + name.len() + 1 + 7) & !7; // header + name + NUL, 8-aligned
+        if out_len + reclen > out.len().min(len) {
+            return; // buffer full; picked up next call
+        }
+        let entry_is_dir = crate::fs::inode(entry_ino).map(|i| i.is_dir()).unwrap_or(false);
+        out[out_len..out_len + 8].copy_from_slice(&(entry_ino as u64).to_le_bytes());
+        out[out_len + 8..out_len + 16].copy_from_slice(&((index + 1) as u64).to_le_bytes());
+        out[out_len + 16..out_len + 18].copy_from_slice(&(reclen as u16).to_le_bytes());
+        out[out_len + 18] = if entry_is_dir { 4 } else { 8 }; // DT_DIR / DT_REG
+        out[out_len + 19..out_len + 19 + name.len()].copy_from_slice(name.as_bytes());
+        out[out_len + 19 + name.len()] = 0;
+        out_len += reclen;
+        index += 1;
+        consumed += 1;
+    });
+    if collect.is_err() {
+        return -5; // EIO
+    }
+
+    if out_len > 0 {
+        let (root_pa, _) = process::current_info();
+        if uaccess::copy_out(mmu::table_at(root_pa), uva, &out[..out_len]).is_err() {
+            return EFAULT;
+        }
+    }
+
+    let mut procs = process::PROCS.lock();
+    let p = procs.slots[cur].as_mut().expect("getdents: no current process");
+    if let Some(Some(f)) = p.files.get_mut(fd - 3) {
+        f.pos = start_index + consumed;
+    }
+    out_len as isize
 }
 
 pub fn sys_exit(tf: &mut TrapFrame) -> isize {

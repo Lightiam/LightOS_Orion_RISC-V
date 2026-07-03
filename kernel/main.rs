@@ -8,7 +8,7 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use lightos::{mem, sched, trap, uart, uart_println};
+use lightos::{fs, mem, sched, trap, uart, uart_println};
 
 core::arch::global_asm!(include_str!("../boot/entry.S"));
 
@@ -84,6 +84,7 @@ extern "C" fn kinit(hartid: usize, dtb: usize) -> ! {
     uart_println!("[phase 1] milestone: MMU on, kernel heap OK");
 
     trap::init();
+    fs::mount_root();
 
     let pid = sched::process::spawn("init").expect("failed to spawn init");
     uart_println!("proc: spawned init as pid {}", pid);

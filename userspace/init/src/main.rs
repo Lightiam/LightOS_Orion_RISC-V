@@ -6,7 +6,9 @@
 #![no_std]
 #![no_main]
 
-use libc_shim::{exec, exit, fork, getpid, mmap, munmap, println, read, spin_delay, wait};
+use libc_shim::{
+    close, exec, exit, fork, getpid, mmap, munmap, open, println, read, spin_delay, wait, write,
+};
 
 const ROUNDS: usize = 5;
 /// ~several 10 ms quanta of busy work per round on QEMU TCG.
@@ -55,10 +57,51 @@ extern "C" fn main() -> i32 {
         println!("init: blocking read(0) returned {:?}", buf[0] as char);
     }
 
-    // PID 1 must never exit; idle politely.
+    // Phase 5: read /etc/motd from the Minix3 root on virtio-blk.
+    print_motd();
+
+    // Spawn the shell on the console; PID 1 reaps and respawns it.
     loop {
-        spin_delay(DELAY * 10);
+        let pid = fork();
+        if pid == 0 {
+            exec("/bin/sh");
+            println!("init: exec /bin/sh failed");
+            exit(1);
+        }
+        if pid < 0 {
+            println!("init: fork failed");
+            loop {
+                spin_delay(DELAY * 10);
+            }
+        }
+        let mut status = 0;
+        loop {
+            let reaped = wait(&mut status);
+            if reaped == pid || reaped < 0 {
+                break;
+            }
+            // Orphans re-parented to init get reaped here too.
+        }
+        println!("init: shell exited, respawning");
     }
+}
+
+fn print_motd() {
+    let fd = open("/etc/motd");
+    if fd < 0 {
+        println!("init: no /etc/motd (error {})", fd);
+        return;
+    }
+    let mut buf = [0u8; 256];
+    loop {
+        let n = read(fd, &mut buf);
+        if n <= 0 {
+            break;
+        }
+        write(1, &buf[..n as usize]);
+    }
+    close(fd);
+    println!("[phase 5] milestone: Minix3 root mounted, /etc/motd read from disk");
 }
 
 /// Exercise the rest of the syscall surface: mmap/munmap, execve.

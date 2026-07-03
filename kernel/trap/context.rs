@@ -2,9 +2,9 @@
 
 /// Full CPU context saved by the trap trampoline (`vector.S`).
 ///
-/// Layout contract with the assembly: `regs[i]` is register `x{i}` at
-/// byte offset `i * 8`; `sepc` at 256; `sstatus` at 264. Total 272
-/// bytes, 16-byte aligned. Do not reorder fields.
+/// Layout contract with the assembly (`trap/vector.S`, `sched/switch.S`):
+/// `regs[i]` is register `x{i}` at byte offset `i * 8`; `sepc` at 256;
+/// `sstatus` at 264; `kernel_sp` at 272. Do not reorder fields.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct TrapFrame {
@@ -13,6 +13,9 @@ pub struct TrapFrame {
     pub regs: [usize; 32],
     pub sepc: usize,
     pub sstatus: usize,
+    /// Stack pointer the user trap vector loads before entering kernel
+    /// Rust code (top of the boot hart's kernel stack).
+    pub kernel_sp: usize,
 }
 
 impl TrapFrame {
@@ -21,6 +24,7 @@ impl TrapFrame {
             regs: [0; 32],
             sepc: 0,
             sstatus: 0,
+            kernel_sp: 0,
         }
     }
 }

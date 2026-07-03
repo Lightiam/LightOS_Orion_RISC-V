@@ -110,6 +110,51 @@ fn timer_tick() {
     clint::set_next(clint::TICK_INTERVAL);
 }
 
+/// Trap entry for traps taken from user mode (called from __user_vec
+/// with the process trap frame). Never returns — every path exits
+/// through the scheduler or a direct user re-entry.
+#[no_mangle]
+extern "C" fn usertrap(tf: &mut TrapFrame) -> ! {
+    let scause = read_csr_scause();
+
+    if scause & SCAUSE_INTERRUPT != 0 {
+        match scause & !SCAUSE_INTERRUPT {
+            IRQ_S_TIMER => {
+                timer_tick();
+                crate::sched::yield_current() // preemption point
+            }
+            IRQ_S_EXTERNAL => {
+                external_interrupt();
+                crate::sched::resume_current()
+            }
+            other => {
+                uart_println!("usertrap: unknown interrupt {}", other);
+                crate::sched::resume_current()
+            }
+        }
+    }
+
+    match scause {
+        8 => {
+            // ecall from U-mode: advance past the ecall, dispatch.
+            tf.sepc += 4;
+            crate::syscall::dispatch(tf)
+        }
+        _ => {
+            let (_, pid) = crate::sched::process::current_info();
+            uart_println!(
+                "usertrap: pid {} faulted: {} (scause={:#x} sepc={:#x} stval={:#x}) — killed",
+                pid,
+                exception_name(scause),
+                scause,
+                tf.sepc,
+                read_csr_stval(),
+            );
+            crate::sched::process::exit_current(-1)
+        }
+    }
+}
+
 fn external_interrupt() {
     let irq = plic::claim();
     match irq {

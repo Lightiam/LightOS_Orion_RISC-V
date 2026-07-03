@@ -8,8 +8,12 @@
 
 extern crate alloc;
 
+pub mod elf;
 pub mod lock;
 pub mod mem;
+pub mod prog;
+pub mod sched;
+pub mod syscall;
 pub mod trap;
 pub mod uart;
 

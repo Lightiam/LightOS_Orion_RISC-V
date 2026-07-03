@@ -4,6 +4,7 @@ pub mod kalloc;
 pub mod layout;
 pub mod mmu;
 pub mod page;
+pub mod uaccess;
 
 use crate::uart_println;
 

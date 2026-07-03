@@ -1,0 +1,8 @@
+[build]
+target = "riscv64gc-unknown-none-elf"
+
+# Override the kernel workspace's rustflags (cargo merges configs from
+# parent directories); user binaries get their link script from each
+# crate's build.rs instead.
+[target.riscv64gc-unknown-none-elf]
+rustflags = []

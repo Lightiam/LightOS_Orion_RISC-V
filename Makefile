@@ -16,9 +16,14 @@ QEMU_ARGS = \
 	-serial stdio \
 	-display none
 
-.PHONY: build run gdb test clean fmt clippy
+.PHONY: build userspace run gdb test clean fmt clippy
 
-build:
+# Userspace ELFs are embedded into the kernel (kernel/prog.rs), so they
+# must be built first.
+userspace:
+	cd userspace && cargo build --release
+
+build: userspace
 	cargo build
 
 $(DISK):
@@ -47,4 +52,5 @@ clippy:
 
 clean:
 	cargo clean
+	cd userspace && cargo clean
 	rm -f $(DISK)

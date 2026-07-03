@@ -1,0 +1,6 @@
+[package]
+name = "libc_shim"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Minimal libc surface for LightOS userspace (raw ecall wrappers)"

@@ -44,7 +44,23 @@ expect "\[phase 0\] milestone"
 expect "\[phase 1\] milestone"
 expect "timer: 100 ticks"
 expect "\[phase 2\] milestone"
-expect "console: got 'Z'"
+
+# Phase 3: two user processes, preemptive interleaving, wait/exit.
+expect "init: hello from userspace, pid 1"
+expect "proc A (pid 1): round 4"
+expect "proc B (pid 2): round 4"
+expect "init: reaped child pid 2 with exit code 7"
+expect "\[phase 3\] milestone"
+
+# Preemption proof: output must alternate between A and B at least
+# twice (a cooperative/serial run would switch at most once).
+SWITCHES=$(grep -o "proc [AB]" "$OUT" | uniq | wc -l)
+if [ "$SWITCHES" -ge 3 ]; then
+    echo "PASS: preemptive interleaving ($((SWITCHES - 1)) A/B switches)"
+else
+    echo "FAIL: no interleaving (switches=$((SWITCHES - 1)))"
+    FAIL=1
+fi
 
 if grep -qi "panic" "$OUT"; then
     echo "FAIL: kernel panicked"

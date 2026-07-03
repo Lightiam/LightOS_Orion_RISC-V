@@ -8,7 +8,7 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use lightos::{mem, trap, uart, uart_println};
+use lightos::{mem, sched, trap, uart, uart_println};
 
 core::arch::global_asm!(include_str!("../boot/entry.S"));
 
@@ -85,18 +85,9 @@ extern "C" fn kinit(hartid: usize, dtb: usize) -> ! {
 
     trap::init();
 
-    // Idle loop: sleep until an interrupt, surface any console input.
-    loop {
-        wait_for_interrupt();
-        while let Some(byte) = uart::read_byte() {
-            uart_println!("console: got {:?}", byte as char);
-        }
-    }
-}
-
-/// `wfi` with interrupts enabled — wakes on timer/external IRQs.
-fn wait_for_interrupt() {
-    unsafe { core::arch::asm!("wfi") }
+    let pid = sched::process::spawn("init").expect("failed to spawn init");
+    uart_println!("proc: spawned init as pid {}", pid);
+    sched::schedule()
 }
 
 /// Exercise the global allocator and the live Sv39 translation.

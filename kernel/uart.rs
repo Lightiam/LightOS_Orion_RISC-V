@@ -115,24 +115,43 @@ struct RxRing {
     tail: usize, // next read
 }
 
-/// UART interrupt service: drain the RX FIFO into the ring buffer and
-/// echo. Called from the PLIC external-interrupt path.
+/// UART interrupt service: drain the RX FIFO into the ring buffer,
+/// echo, then hand buffered input to any process blocked in read(0).
+/// Called from the PLIC external-interrupt path.
 pub fn handle_interrupt() {
+    let mut got_input = false;
+    {
+        let mut uart = UART.lock();
+        while let Some(byte) = uart.get() {
+            // Echo (translate CR from terminals to NL).
+            let byte = if byte == b'\r' { b'\n' } else { byte };
+            if byte == b'\n' {
+                uart.put(b'\r');
+            }
+            uart.put(byte);
+            let mut rx = RX_BUF.lock();
+            let next = (rx.head + 1) % RX_BUF_SIZE;
+            if next != rx.tail {
+                let head = rx.head;
+                rx.buf[head] = byte;
+                rx.head = next;
+                got_input = true;
+            } // else: buffer full, drop input
+        }
+    }
+    if got_input {
+        crate::sched::process::wake_console_reader();
+    }
+}
+
+/// Raw console write for the sys_write path (LF -> CRLF).
+pub fn write_bytes(bytes: &[u8]) {
     let mut uart = UART.lock();
-    while let Some(byte) = uart.get() {
-        // Echo (translate CR from terminals to NL).
-        let byte = if byte == b'\r' { b'\n' } else { byte };
+    for &byte in bytes {
         if byte == b'\n' {
             uart.put(b'\r');
         }
         uart.put(byte);
-        let mut rx = RX_BUF.lock();
-        let next = (rx.head + 1) % RX_BUF_SIZE;
-        if next != rx.tail {
-            let head = rx.head;
-            rx.buf[head] = byte;
-            rx.head = next;
-        } // else: buffer full, drop input
     }
 }
 

@@ -70,10 +70,15 @@ extern "C" fn mstart(hartid: usize, dtb: usize) -> ! {
     }
 }
 
+/// Boot splash: ASCII rendering of the Orion.mp4 title card
+/// (regenerate with scripts/make_splash.sh).
+const SPLASH: &str = include_str!("../assets/splash.txt");
+
 /// Supervisor-mode kernel entry point.
 #[no_mangle]
 extern "C" fn kinit(hartid: usize, dtb: usize) -> ! {
     uart::init();
+    uart_println!("{}", SPLASH);
     uart_println!("LightOS booting...");
     uart_println!("LightOS v0.1.0 — RISC-V RV64GC, hart {} in S-mode", hartid);
     uart_println!("device tree blob at {:#x}", dtb);

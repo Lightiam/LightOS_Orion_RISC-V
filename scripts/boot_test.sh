@@ -53,6 +53,7 @@ expect() {
     fi
 }
 
+expect "LightOS Orion — a LightRail AI system"
 expect "LightOS booting..."
 expect "\[phase 0\] milestone"
 expect "\[phase 1\] milestone"

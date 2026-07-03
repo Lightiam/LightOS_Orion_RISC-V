@@ -1,10 +1,17 @@
 name: Release
 
-# Push a version tag (e.g. v0.1.0) to build the QEMU bundle and publish
-# it as a GitHub Release with downloadable artifacts.
+# Two ways to cut a release:
+#   1. push a version tag:   git tag v0.1.0 && git push origin v0.1.0
+#   2. Actions tab -> Release -> "Run workflow", enter a version (v0.1.0)
+# Both build the QEMU bundle and publish it as a GitHub Release.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version tag (e.g. v0.1.0), must match the VERSION file"
+        required: true
 
 permissions:
   contents: write
@@ -15,6 +22,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install QEMU and Minix tooling
         run: |
@@ -29,7 +45,8 @@ jobs:
 
       - name: Verify tag matches VERSION file
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${{ steps.tag.outputs.tag }}"
+          tag="${tag#v}"
           file="$(cat VERSION)"
           if [ "$tag" != "$file" ]; then
             echo "Tag v$tag does not match VERSION ($file)"; exit 1
@@ -44,7 +61,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: LightOS ${{ github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: LightOS ${{ steps.tag.outputs.tag }}
           draft: false
           prerelease: false
           generate_release_notes: true

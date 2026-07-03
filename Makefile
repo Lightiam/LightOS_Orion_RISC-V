@@ -106,10 +106,11 @@ release: build-release $(DISK)
 	cp $(RELEASE_KERNEL) $(RELEASE_DIR)/lightos
 	cp $(DISK) $(RELEASE_DIR)/rootfs.img
 	cp scripts/lightos-run.sh $(RELEASE_DIR)/run.sh
+	cp scripts/lightos-run.ps1 $(RELEASE_DIR)/run.ps1
 	cp VERSION $(RELEASE_DIR)/VERSION
 	cp docs/BUNDLE_README.md $(RELEASE_DIR)/README.md
 	chmod +x $(RELEASE_DIR)/run.sh
-	cd $(RELEASE_DIR) && sha256sum lightos rootfs.img run.sh > SHA256SUMS
+	cd $(RELEASE_DIR) && sha256sum lightos rootfs.img run.sh run.ps1 > SHA256SUMS
 	@echo "release bundle staged at $(RELEASE_DIR)"
 	$(MAKE) release-tarball
 

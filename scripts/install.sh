@@ -2,6 +2,9 @@
 # LightOS installer — fetch the latest release and install a `lightos`
 # launcher for the current user. QEMU-targeted; no root required.
 #
+# Runs in bash on Linux and macOS (and on Windows via WSL). It does NOT
+# run in Windows PowerShell/CMD — see INSTALL.md for the Windows path.
+#
 #     curl -fsSL https://raw.githubusercontent.com/Lightiam/LightOS_Orion_RISC-V/main/scripts/install.sh | bash
 #
 # Installs into ~/.lightos and drops a `lightos` command in
@@ -25,14 +28,35 @@ else
     api="$api/tags/$VERSION"
 fi
 
+from_source_hint() {
+    cat >&2 <<EOF
+
+Build and run from source instead (needs Rust, QEMU, make, python3, and
+fsck.minix from util-linux):
+
+    git clone https://github.com/$REPO
+    cd LightOS_Orion_RISC-V
+    make run
+EOF
+}
+
 echo "install: resolving $VERSION release of $REPO ..."
-asset_url=$(curl -fsSL "$api" \
+# Tolerate a missing release: without -f aborting the whole script, we
+# can print a helpful message instead of a raw 'curl: (22) 404'.
+if ! releases_json=$(curl -fsSL "$api" 2>/dev/null); then
+    echo "install: no published '$VERSION' release found for $REPO yet." >&2
+    echo "install: once a release is published, re-run this installer." >&2
+    from_source_hint
+    exit 1
+fi
+
+asset_url=$(printf '%s' "$releases_json" \
     | grep -oE '"browser_download_url": *"[^"]*lightos-[^"]*\.tar\.gz"' \
     | head -n1 | sed -E 's/.*"(https[^"]*)".*/\1/')
 
 if [ -z "${asset_url:-}" ]; then
-    echo "install: no release tarball found (has a release been published yet?)." >&2
-    echo "install: you can still build from source: git clone https://github.com/$REPO && make release" >&2
+    echo "install: a release exists but has no LightOS bundle attached." >&2
+    from_source_hint
     exit 1
 fi
 

@@ -21,6 +21,13 @@ name = "libc_shim"
 version = "0.1.0"
 
 [[package]]
+name = "ncectl"
+version = "0.1.0"
+dependencies = [
+ "libc_shim",
+]
+
+[[package]]
 name = "sh"
 version = "0.1.0"
 dependencies = [

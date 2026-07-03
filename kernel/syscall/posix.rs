@@ -34,7 +34,42 @@ pub fn sys_write(tf: &mut TrapFrame) -> isize {
             }
             len as isize
         }
+        fd if fd >= 3 => nce_write(fd as usize, uva, len),
         _ => EBADF,
+    }
+}
+
+/// Writing a power-state name ("idle"/"active"/"turbo") to /dev/nceN
+/// requests that transition. Regular files are read-only in v1.
+fn nce_write(fd: usize, uva: usize, len: usize) -> isize {
+    let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
+    let kind = {
+        let procs = process::PROCS.lock();
+        let p = procs.slots[cur].as_ref().expect("write: no current process");
+        match p.files.get(fd - 3).copied().flatten() {
+            Some(f) => f.kind,
+            None => return EBADF,
+        }
+    };
+    let process::FdKind::Nce { slot } = kind else {
+        return -30; // EROFS: file writes unsupported in v1
+    };
+
+    let mut buf = [0u8; 16];
+    let n = len.min(buf.len());
+    let (root_pa, _) = process::current_info();
+    if uaccess::copy_in(mmu::table_at(root_pa), uva, &mut buf[..n]).is_err() {
+        return EFAULT;
+    }
+    let Ok(text) = core::str::from_utf8(&buf[..n]) else {
+        return EINVAL;
+    };
+    let Some(state) = crate::nce::power::PowerState::parse(text) else {
+        return EINVAL;
+    };
+    match crate::nce::set_power(slot, state) {
+        Ok(()) => n as isize,
+        Err(_) => EINVAL, // illegal transition
     }
 }
 
@@ -88,6 +123,7 @@ const O_DIRECTORY: usize = 0o200000;
 
 /// openat(dirfd, path, flags): dirfd is ignored — all paths resolve
 /// from the root (processes track their own cwd in userspace for v1).
+/// "/dev/nceN" paths open NCE character devices.
 pub fn sys_openat(tf: &mut TrapFrame) -> isize {
     let (root_pa, _) = process::current_info();
     let mut buf = [0u8; 128];
@@ -96,22 +132,33 @@ pub fn sys_openat(tf: &mut TrapFrame) -> isize {
     };
     let flags = tf.a2();
 
-    let inode = match crate::fs::lookup(path) {
-        Ok(Some(inode)) => inode,
-        Ok(None) => return ENOENT,
-        Err(_) => return ENOENT,
+    let kind = if let Some(rest) = path.strip_prefix("/dev/nce") {
+        let Ok(slot) = rest.parse::<usize>() else {
+            return ENOENT;
+        };
+        if slot >= crate::nce::count() {
+            return ENOENT;
+        }
+        if flags & O_DIRECTORY != 0 {
+            return ENOTDIR;
+        }
+        process::FdKind::Nce { slot }
+    } else {
+        let inode = match crate::fs::lookup(path) {
+            Ok(Some(inode)) => inode,
+            Ok(None) => return ENOENT,
+            Err(_) => return ENOENT,
+        };
+        if flags & O_DIRECTORY != 0 && !inode.is_dir() {
+            return ENOTDIR;
+        }
+        process::FdKind::File { ino: inode.ino }
     };
-    if flags & O_DIRECTORY != 0 && !inode.is_dir() {
-        return ENOTDIR;
-    }
 
     let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
     let mut procs = process::PROCS.lock();
     let p = procs.slots[cur].as_mut().expect("open: no current process");
-    let file = process::OpenFile {
-        ino: inode.ino,
-        pos: 0,
-    };
+    let file = process::OpenFile { kind, pos: 0 };
     // Reuse a closed slot or append.
     let idx = match p.files.iter().position(|f| f.is_none()) {
         Some(i) => {
@@ -143,15 +190,40 @@ pub fn sys_close(tf: &mut TrapFrame) -> isize {
     }
 }
 
-/// Read from a file-backed fd. Returns bytes read (0 at EOF).
+/// Read from a file- or device-backed fd. Returns bytes read (0=EOF).
 fn file_read(fd: usize, uva: usize, len: usize) -> isize {
     let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
-    let (ino, pos) = {
+    let (kind, pos) = {
         let procs = process::PROCS.lock();
         let p = procs.slots[cur].as_ref().expect("read: no current process");
         match p.files.get(fd - 3).copied().flatten() {
-            Some(f) => (f.ino, f.pos),
+            Some(f) => (f.kind, f.pos),
             None => return EBADF,
+        }
+    };
+
+    let ino = match kind {
+        process::FdKind::File { ino } => ino,
+        process::FdKind::Nce { slot } => {
+            // Reading /dev/nceN yields its one-line descriptor.
+            let Some(text) = crate::nce::describe(slot) else {
+                return EBADF;
+            };
+            let bytes = text.as_bytes();
+            if pos >= bytes.len() {
+                return 0; // EOF
+            }
+            let n = len.min(bytes.len() - pos);
+            let (root_pa, _) = process::current_info();
+            if uaccess::copy_out(mmu::table_at(root_pa), uva, &bytes[pos..pos + n]).is_err() {
+                return EFAULT;
+            }
+            let mut procs = process::PROCS.lock();
+            let p = procs.slots[cur].as_mut().expect("read: no current process");
+            if let Some(Some(f)) = p.files.get_mut(fd - 3) {
+                f.pos += n;
+            }
+            return n as isize;
         }
     };
     let Ok(inode) = crate::fs::inode(ino) else {
@@ -205,7 +277,11 @@ pub fn sys_getdents64(tf: &mut TrapFrame) -> isize {
         let procs = process::PROCS.lock();
         let p = procs.slots[cur].as_ref().expect("getdents: no current process");
         match p.files.get(fd - 3).copied().flatten() {
-            Some(f) => (f.ino, f.pos),
+            Some(process::OpenFile {
+                kind: process::FdKind::File { ino },
+                pos,
+            }) => (ino, pos),
+            Some(_) => return ENOTDIR,
             None => return EBADF,
         }
     };
@@ -322,6 +398,36 @@ pub fn sys_mmap(tf: &mut TrapFrame) -> isize {
         }
     }
     va as isize
+}
+
+/// sched_setaffinity(pid=0, len, *mask): store the NCE affinity hint
+/// for the calling process.
+pub fn sys_sched_setaffinity(tf: &mut TrapFrame) -> isize {
+    if tf.a0() != 0 {
+        return -3; // ESRCH: only self in v1
+    }
+    let len = tf.a1().min(8);
+    let mut buf = [0u8; 8];
+    let (root_pa, _) = process::current_info();
+    if uaccess::copy_in(mmu::table_at(root_pa), tf.a2(), &mut buf[..len]).is_err() {
+        return EFAULT;
+    }
+    let mask = usize::from_le_bytes(buf);
+    crate::nce::affinity::set_current(mask)
+}
+
+/// sched_getaffinity(pid=0, len, *mask): read the stored hint back.
+pub fn sys_sched_getaffinity(tf: &mut TrapFrame) -> isize {
+    if tf.a0() != 0 {
+        return -3; // ESRCH
+    }
+    let mask = crate::nce::affinity::get_current();
+    let (root_pa, _) = process::current_info();
+    let len = tf.a1().min(8);
+    if uaccess::copy_out(mmu::table_at(root_pa), tf.a2(), &mask.to_le_bytes()[..len]).is_err() {
+        return EFAULT;
+    }
+    len as isize
 }
 
 /// munmap(addr, len): unmap and free anonymous pages.

@@ -40,11 +40,20 @@ pub enum ProcState {
     Zombie,
 }
 
-/// An open file-backed descriptor (fds 0-2 are the console and have
-/// no entry here; file fds start at 3).
+/// What an fd >= 3 refers to.
+#[derive(Clone, Copy)]
+pub enum FdKind {
+    /// Regular file or directory on the root filesystem.
+    File { ino: u32 },
+    /// NCE character device (/dev/nceN).
+    Nce { slot: usize },
+}
+
+/// An open descriptor (fds 0-2 are the console and have no entry
+/// here; fds from 3 index this table).
 #[derive(Clone, Copy)]
 pub struct OpenFile {
-    pub ino: u32,
+    pub kind: FdKind,
     /// Byte offset for files, entry index for directories.
     pub pos: usize,
 }
@@ -67,6 +76,8 @@ pub struct Process {
     pub name: [u8; 16],
     /// Open files, indexed by fd - 3.
     pub files: alloc::vec::Vec<Option<OpenFile>>,
+    /// NCE affinity hint mask (bit n = wants NCE slot n proximity).
+    pub nce_affinity: usize,
 }
 
 pub struct ProcTable {
@@ -157,6 +168,7 @@ pub fn spawn(name: &str) -> Result<usize, &'static str> {
         brk,
         name: name_buf,
         files: alloc::vec::Vec::new(),
+        nce_affinity: 0,
     });
     Ok(pid)
 }
@@ -206,6 +218,7 @@ pub fn fork_current(tf: &TrapFrame) -> isize {
         brk,
         name,
         files,
+        nce_affinity: 0,
     });
     pid as isize
 }

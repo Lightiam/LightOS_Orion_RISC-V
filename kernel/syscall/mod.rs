@@ -17,6 +17,8 @@ pub const SYS_GETDENTS64: usize = 61;
 pub const SYS_READ: usize = 63;
 pub const SYS_WRITE: usize = 64;
 pub const SYS_EXIT: usize = 93;
+pub const SYS_SCHED_SETAFFINITY: usize = 122;
+pub const SYS_SCHED_GETAFFINITY: usize = 123;
 pub const SYS_GETPID: usize = 172;
 pub const SYS_MUNMAP: usize = 215;
 pub const SYS_CLONE: usize = 220;
@@ -35,6 +37,8 @@ pub fn dispatch(tf: &mut TrapFrame) -> ! {
         SYS_OPENAT => posix::sys_openat(tf),
         SYS_CLOSE => posix::sys_close(tf),
         SYS_GETDENTS64 => posix::sys_getdents64(tf),
+        SYS_SCHED_SETAFFINITY => posix::sys_sched_setaffinity(tf),
+        SYS_SCHED_GETAFFINITY => posix::sys_sched_getaffinity(tf),
         SYS_EXIT => posix::sys_exit(tf), // never returns
         SYS_GETPID => posix::sys_getpid(),
         SYS_CLONE => posix::sys_fork(tf),

@@ -28,6 +28,7 @@ feed_input() {
     printf 'pwd\n';                      sleep 1
     printf 'ls\n';                       sleep 1
     printf 'hello\n';                    sleep 1
+    printf 'ncectl\n';                   sleep 1
     printf 'exit\n';                     sleep 2
 }
 
@@ -110,6 +111,14 @@ else
     echo "FAIL: ls /bin did not list binaries"
     FAIL=1
 fi
+
+# Phase 7: NCE HAL via /dev/nce0 from userspace.
+expect "nce: no NCE nodes in device tree"
+expect "nce0: state=idle"
+expect "idle->turbo correctly rejected"
+expect "nce0: state=turbo"
+expect "sched_setaffinity(nce0) -> 0"
+expect "\[phase 7\] milestone"
 
 if grep -qi "panic" "$OUT"; then
     echo "FAIL: kernel panicked"

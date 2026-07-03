@@ -13,6 +13,7 @@ pub mod elf;
 pub mod fs;
 pub mod lock;
 pub mod mem;
+pub mod nce;
 pub mod sched;
 pub mod syscall;
 pub mod trap;

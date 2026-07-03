@@ -14,6 +14,8 @@ pub const SYS_GETDENTS64: usize = 61;
 pub const SYS_READ: usize = 63;
 pub const SYS_WRITE: usize = 64;
 pub const SYS_EXIT: usize = 93;
+pub const SYS_SCHED_SETAFFINITY: usize = 122;
+pub const SYS_SCHED_GETAFFINITY: usize = 123;
 pub const SYS_GETPID: usize = 172;
 pub const SYS_MUNMAP: usize = 215;
 pub const SYS_CLONE: usize = 220; // plain fork semantics on LightOS
@@ -110,6 +112,18 @@ pub fn exec(path: &str) -> isize {
 /// (exit code << 8, wait(2) convention).
 pub fn wait(status: &mut i32) -> i32 {
     syscall(SYS_WAIT4, -1isize as usize, status as *mut i32 as usize, 0, 0) as i32
+}
+
+/// Register an NCE affinity hint mask for this process.
+pub fn sched_setaffinity(mask: usize) -> isize {
+    let m = mask.to_le_bytes();
+    syscall(SYS_SCHED_SETAFFINITY, 0, 8, m.as_ptr() as usize, 0)
+}
+
+pub fn sched_getaffinity() -> usize {
+    let mut m = [0u8; 8];
+    syscall(SYS_SCHED_GETAFFINITY, 0, 8, m.as_mut_ptr() as usize, 0);
+    usize::from_le_bytes(m)
 }
 
 pub fn mmap(len: usize) -> *mut u8 {

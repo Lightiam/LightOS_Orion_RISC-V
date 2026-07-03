@@ -37,6 +37,7 @@ $(DISK): userspace scripts/mkfs_minix3.py $(wildcard rootfs/**/*)
 	cp $(USER_TARGET)/init $(ROOTFS_STAGE)/bin/init
 	cp $(USER_TARGET)/hello $(ROOTFS_STAGE)/bin/hello
 	cp $(USER_TARGET)/sh $(ROOTFS_STAGE)/bin/sh
+	cp $(USER_TARGET)/ncectl $(ROOTFS_STAGE)/bin/ncectl
 	chmod +x $(ROOTFS_STAGE)/bin/*
 	python3 scripts/mkfs_minix3.py $(DISK) $(ROOTFS_STAGE) 8192
 	fsck.minix -f $(DISK)

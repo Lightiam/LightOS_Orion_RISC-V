@@ -1,4 +1,6 @@
 /target
 disk.img
+/dist
 *.o
 *.elf
+/userspace/target

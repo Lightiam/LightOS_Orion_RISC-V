@@ -1,0 +1,53 @@
+name: Release
+
+# Push a version tag (e.g. v0.1.0) to build the QEMU bundle and publish
+# it as a GitHub Release with downloadable artifacts.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU and Minix tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-misc util-linux python3
+
+      - name: Install Rust target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add riscv64gc-unknown-none-elf
+
+      - name: Verify tag matches VERSION file
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          file="$(cat VERSION)"
+          if [ "$tag" != "$file" ]; then
+            echo "Tag v$tag does not match VERSION ($file)"; exit 1
+          fi
+
+      - name: Boot test (release must be green)
+        run: make test
+
+      - name: Build release bundle
+        run: make release
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LightOS ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist/lightos-*.tar.gz
+            dist/lightos-*.tar.gz.sha256

@@ -15,12 +15,12 @@ trap 'rm -f "$OUT"' EXIT
 
 [ -f "$DISK" ] || { echo "missing $DISK — run 'make test' (builds the rootfs image)"; exit 1; }
 
-# Scripted console session: a bare 'Z' for the blocking-read check,
-# then a full interactive shell workout (Phase 6).
+# Scripted console session. A production LightOS boots straight to a
+# shell, so the process/syscall self-tests (phases 3-4) are driven from
+# the shell via /bin/selftest, then a full interactive workout.
 feed_input() {
     sleep 4
-    printf 'Z'                          # init's blocking read(0)
-    sleep 3
+    printf 'selftest\n';                 sleep 8   # phases 3-4
     printf 'ls /\n';                     sleep 1
     printf 'cat /etc/motd\n';            sleep 1
     printf 'echo shell-echo-works\n';    sleep 1
@@ -61,11 +61,12 @@ expect "\[phase 1\] milestone"
 expect "timer: 100 ticks"
 expect "\[phase 2\] milestone"
 
-# Phase 3: two user processes, preemptive interleaving, wait/exit.
-expect "init: hello from userspace, pid 1"
-expect "proc A (pid 1): round 4"
-expect "proc B (pid 2): round 4"
-expect "init: reaped child pid 2 with exit code 7"
+# Phase 3: two user processes, preemptive interleaving, wait/exit
+# (driven by /bin/selftest from the shell).
+expect "selftest: pid .* starting"
+expect "proc A (pid .*): round 4"
+expect "proc B (pid .*): round 4"
+expect "selftest: reaped child pid .* with exit code 7"
 expect "\[phase 3\] milestone"
 
 # Preemption proof: output must alternate between A and B at least
@@ -78,14 +79,15 @@ else
     FAIL=1
 fi
 
-# Phase 4: remaining syscall surface + blocking console read.
-expect "init: mmap/munmap of 12288 bytes verified"
+# Phase 4: remaining syscall surface (mmap/munmap, execve).
+expect "selftest: mmap/munmap of 12288 bytes verified"
 expect "hello: exec works, running as pid"
-expect "init: exec'd child pid .* exited with code 42"
+expect "selftest: exec'd child pid .* exited with code 42"
 expect "\[phase 4\] milestone"
-expect "init: blocking read(0) returned 'Z'"
 
 # Phase 5: virtio-blk + Minix3 root + /etc/motd + shell launch.
+# (The shell's own line editor exercises the blocking read(0) path on
+# every command it reads.)
 expect "virtio-blk: capacity"
 expect "vfs: mounted Minix3 root"
 expect "Welcome to LightOS"

@@ -1,1 +1,0 @@
-/workspace/lightos_orion_risc-v/userspace/target/riscv64gc-unknown-none-elf/release/init: /workspace/lightos_orion_risc-v/userspace/init/../user.ld /workspace/lightos_orion_risc-v/userspace/init/build.rs /workspace/lightos_orion_risc-v/userspace/init/src/main.rs /workspace/lightos_orion_risc-v/userspace/libc_shim/src/lib.rs

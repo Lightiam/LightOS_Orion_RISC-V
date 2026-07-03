@@ -80,7 +80,11 @@ extern "C" fn kinit(hartid: usize, dtb: usize) -> ! {
     uart::init();
     uart_println!("{}", SPLASH);
     uart_println!("LightOS booting...");
-    uart_println!("LightOS v0.1.0 — RISC-V RV64GC, hart {} in S-mode", hartid);
+    uart_println!(
+        "LightOS v{} — RISC-V RV64GC, hart {} in S-mode",
+        env!("CARGO_PKG_VERSION"),
+        hartid
+    );
     uart_println!("device tree blob at {:#x}", dtb);
     uart_println!("[phase 0] milestone: bare boot + UART OK");
 

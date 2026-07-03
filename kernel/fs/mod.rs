@@ -29,6 +29,7 @@ pub fn mount_root() -> bool {
                 zones
             );
             *ROOT.lock() = Some(fs);
+            uart_println!("[phase 5] milestone: Minix3 root mounted from virtio-blk");
             true
         }
         Err(e) => {

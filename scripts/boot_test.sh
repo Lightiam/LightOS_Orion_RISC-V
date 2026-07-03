@@ -9,15 +9,29 @@ set -u
 
 KERNEL=${KERNEL:-target/riscv64gc-unknown-none-elf/debug/lightos}
 DISK=${DISK:-disk.img}
-TIMEOUT=${TIMEOUT:-10}
+TIMEOUT=${TIMEOUT:-25}
 OUT=$(mktemp)
 trap 'rm -f "$OUT"' EXIT
 
 [ -f "$DISK" ] || { echo "missing $DISK — run 'make test' (builds the rootfs image)"; exit 1; }
 
-# Feed a console character a few seconds after boot to exercise the
-# IRQ-driven UART receive path (Phase 2+).
-(sleep 4; printf 'Z') | timeout --foreground "$TIMEOUT" qemu-system-riscv64 \
+# Scripted console session: a bare 'Z' for the blocking-read check,
+# then a full interactive shell workout (Phase 6).
+feed_input() {
+    sleep 4
+    printf 'Z'                          # init's blocking read(0)
+    sleep 3
+    printf 'ls /\n';                     sleep 1
+    printf 'cat /etc/motd\n';            sleep 1
+    printf 'echo shell-echo-works\n';    sleep 1
+    printf 'cd /bin\n';                  sleep 1
+    printf 'pwd\n';                      sleep 1
+    printf 'ls\n';                       sleep 1
+    printf 'hello\n';                    sleep 1
+    printf 'exit\n';                     sleep 2
+}
+
+feed_input | timeout --foreground "$TIMEOUT" qemu-system-riscv64 \
     -machine virt -cpu rv64 -smp 4 -m 128M \
     -bios none -kernel "$KERNEL" \
     -drive file="$DISK",format=raw,id=hd0 \
@@ -75,6 +89,26 @@ expect "vfs: mounted Minix3 root"
 expect "Welcome to LightOS"
 expect "\[phase 5\] milestone"
 expect "LightOS sh v0.1"
+
+# Phase 6: interactive shell session (scripted stdin above).
+expect "bin/"                      # ls /
+expect "etc/"
+expect "^shell-echo-works"         # echo output (not the typed line)
+expect "lightos:/bin\\$"           # prompt after cd /bin
+expect "hello: exec works"         # external command from /bin
+expect "init: shell exited, respawning"
+if [ "$(grep -c 'Welcome to LightOS' "$OUT")" -ge 2 ]; then
+    echo "PASS: cat /etc/motd re-read the file interactively"
+else
+    echo "FAIL: cat /etc/motd produced no second copy"
+    FAIL=1
+fi
+if grep -q "sh  " "$OUT" && grep -q "init  " "$OUT"; then
+    echo "PASS: ls /bin lists binaries"
+else
+    echo "FAIL: ls /bin did not list binaries"
+    FAIL=1
+fi
 
 if grep -qi "panic" "$OUT"; then
     echo "FAIL: kernel panicked"

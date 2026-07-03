@@ -216,33 +216,39 @@ pub fn sys_getdents64(tf: &mut TrapFrame) -> isize {
         return ENOTDIR;
     }
 
-    // Collect entries after start_index into dirent64 records.
+    // Collect raw entries first — fs::inode() cannot be called inside
+    // the readdir closure (the VFS root lock is held and not
+    // reentrant), so type resolution happens in a second pass.
+    let mut entries: alloc::vec::Vec<(u32, alloc::string::String)> = alloc::vec::Vec::new();
+    let mut index = 0usize;
+    let collect = crate::fs::readdir(&dir, |name, entry_ino| {
+        if index >= start_index && entries.len() < 32 {
+            entries.push((entry_ino, alloc::string::String::from(name)));
+        }
+        index += 1;
+    });
+    if collect.is_err() {
+        return -5; // EIO
+    }
+
     let mut out = [0u8; 512];
     let mut out_len = 0usize;
-    let mut index = 0usize;
     let mut consumed = 0usize;
-    let collect = crate::fs::readdir(&dir, |name, entry_ino| {
-        if index < start_index {
-            index += 1;
-            return;
-        }
+    for (entry_ino, name) in entries {
         let reclen = (19 + name.len() + 1 + 7) & !7; // header + name + NUL, 8-aligned
         if out_len + reclen > out.len().min(len) {
-            return; // buffer full; picked up next call
+            break; // buffer full; picked up next call
         }
         let entry_is_dir = crate::fs::inode(entry_ino).map(|i| i.is_dir()).unwrap_or(false);
+        let seq = (start_index + consumed + 1) as u64;
         out[out_len..out_len + 8].copy_from_slice(&(entry_ino as u64).to_le_bytes());
-        out[out_len + 8..out_len + 16].copy_from_slice(&((index + 1) as u64).to_le_bytes());
+        out[out_len + 8..out_len + 16].copy_from_slice(&seq.to_le_bytes());
         out[out_len + 16..out_len + 18].copy_from_slice(&(reclen as u16).to_le_bytes());
         out[out_len + 18] = if entry_is_dir { 4 } else { 8 }; // DT_DIR / DT_REG
         out[out_len + 19..out_len + 19 + name.len()].copy_from_slice(name.as_bytes());
         out[out_len + 19 + name.len()] = 0;
         out_len += reclen;
-        index += 1;
         consumed += 1;
-    });
-    if collect.is_err() {
-        return -5; // EIO
     }
 
     if out_len > 0 {

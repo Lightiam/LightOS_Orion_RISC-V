@@ -1,0 +1,7 @@
+[toolchain]
+# Stable has everything the kernel needs (no_std, alloc, global_asm);
+# pinned for reproducible builds. Switch to nightly only if an unstable
+# feature becomes unavoidable.
+channel = "stable"
+components = ["rust-src", "rustfmt", "clippy"]
+targets = ["riscv64gc-unknown-none-elf"]

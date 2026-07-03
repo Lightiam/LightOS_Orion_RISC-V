@@ -62,6 +62,13 @@ else
     FAIL=1
 fi
 
+# Phase 4: remaining syscall surface + blocking console read.
+expect "init: mmap/munmap of 12288 bytes verified"
+expect "hello: exec works, running as pid"
+expect "init: exec'd child pid .* exited with code 42"
+expect "\[phase 4\] milestone"
+expect "init: blocking read(0) returned 'Z'"
+
 if grep -qi "panic" "$OUT"; then
     echo "FAIL: kernel panicked"
     FAIL=1

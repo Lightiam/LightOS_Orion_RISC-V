@@ -39,6 +39,7 @@ expect() {
 
 expect "LightOS booting..."
 expect "\[phase 0\] milestone"
+expect "\[phase 1\] milestone"
 
 if grep -qi "panic" "$OUT"; then
     echo "FAIL: kernel panicked"

@@ -6,7 +6,10 @@
 #![no_std]
 #![deny(unsafe_code)]
 
+extern crate alloc;
+
 pub mod lock;
+pub mod mem;
 pub mod uart;
 
 use core::panic::PanicInfo;

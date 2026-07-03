@@ -4,7 +4,11 @@
 #![no_main]
 #![allow(unsafe_code)] // boot CSR programming is inherently unsafe asm
 
-use lightos::{halt, uart, uart_println};
+extern crate alloc;
+
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use lightos::{halt, mem, uart, uart_println};
 
 core::arch::global_asm!(include_str!("../boot/entry.S"));
 
@@ -68,5 +72,26 @@ extern "C" fn kinit(hartid: usize, dtb: usize) -> ! {
     uart_println!("LightOS v0.1.0 — RISC-V RV64GC, hart {} in S-mode", hartid);
     uart_println!("device tree blob at {:#x}", dtb);
     uart_println!("[phase 0] milestone: bare boot + UART OK");
+
+    mem::init();
+    heap_smoke_test();
+    uart_println!("[phase 1] milestone: MMU on, kernel heap OK");
+
     halt()
+}
+
+/// Exercise the global allocator and the live Sv39 translation.
+fn heap_smoke_test() {
+    let boxed = Box::new(0xdead_beef_u64);
+    let mut v: Vec<usize> = Vec::new();
+    for i in 0..1024 {
+        v.push(i * 3);
+    }
+    assert_eq!(*boxed, 0xdead_beef);
+    assert_eq!(v[1023], 1023 * 3);
+    uart_println!(
+        "heap: Box at {:p}, Vec[1024] at {:p} — allocations verified",
+        &*boxed,
+        v.as_ptr(),
+    );
 }

@@ -2,7 +2,9 @@
 
 TARGET  := riscv64gc-unknown-none-elf
 KERNEL  := target/$(TARGET)/debug/lightos
+RELEASE_KERNEL := target/$(TARGET)/release/lightos
 DISK    := disk.img
+VERSION := $(shell cat VERSION)
 
 QEMU_ARGS = \
 	-machine virt \
@@ -38,6 +40,7 @@ $(DISK): userspace scripts/mkfs_minix3.py $(wildcard rootfs/**/*)
 	cp $(USER_TARGET)/hello $(ROOTFS_STAGE)/bin/hello
 	cp $(USER_TARGET)/sh $(ROOTFS_STAGE)/bin/sh
 	cp $(USER_TARGET)/ncectl $(ROOTFS_STAGE)/bin/ncectl
+	cp $(USER_TARGET)/selftest $(ROOTFS_STAGE)/bin/selftest
 	chmod +x $(ROOTFS_STAGE)/bin/*
 	python3 scripts/mkfs_minix3.py $(DISK) $(ROOTFS_STAGE) 8192
 	fsck.minix -f $(DISK)
@@ -72,6 +75,7 @@ clean:
 	cargo clean
 	cd userspace && cargo clean
 	rm -f $(DISK)
+	rm -rf $(DIST)
 
 # Build and run the full boot test inside Docker (no host toolchain
 # needed beyond Docker itself).
@@ -79,3 +83,37 @@ clean:
 docker-test:
 	docker build -t lightos .
 	docker run --rm lightos
+
+# ---------------------------------------------------------------------
+# Release packaging: a self-contained, downloadable QEMU bundle.
+#
+#   make release            -> dist/lightos-<ver>/ + dist/lightos-<ver>.tar.gz
+#
+# The bundle holds a release-optimized kernel, the root filesystem
+# image, a self-locating run.sh, quickstart docs, and SHA256SUMS. A
+# user unpacks it and runs ./run.sh — nothing else required but QEMU.
+# ---------------------------------------------------------------------
+DIST        := dist
+RELEASE_DIR := $(DIST)/lightos-$(VERSION)
+
+.PHONY: build-release release release-tarball
+build-release: userspace
+	cargo build --release
+
+release: build-release $(DISK)
+	rm -rf $(RELEASE_DIR)
+	mkdir -p $(RELEASE_DIR)
+	cp $(RELEASE_KERNEL) $(RELEASE_DIR)/lightos
+	cp $(DISK) $(RELEASE_DIR)/rootfs.img
+	cp scripts/lightos-run.sh $(RELEASE_DIR)/run.sh
+	cp VERSION $(RELEASE_DIR)/VERSION
+	cp docs/BUNDLE_README.md $(RELEASE_DIR)/README.md
+	chmod +x $(RELEASE_DIR)/run.sh
+	cd $(RELEASE_DIR) && sha256sum lightos rootfs.img run.sh > SHA256SUMS
+	@echo "release bundle staged at $(RELEASE_DIR)"
+	$(MAKE) release-tarball
+
+release-tarball:
+	cd $(DIST) && tar czf lightos-$(VERSION).tar.gz lightos-$(VERSION)
+	cd $(DIST) && sha256sum lightos-$(VERSION).tar.gz > lightos-$(VERSION).tar.gz.sha256
+	@echo "tarball: $(DIST)/lightos-$(VERSION).tar.gz"

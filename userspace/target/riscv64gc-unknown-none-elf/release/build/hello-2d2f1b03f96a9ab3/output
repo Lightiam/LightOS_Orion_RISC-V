@@ -1,3 +1,0 @@
-cargo:rustc-link-arg=-T/workspace/lightos_orion_risc-v/userspace/hello/../user.ld
-cargo:rustc-link-arg=-zmax-page-size=4096
-cargo:rerun-if-changed=/workspace/lightos_orion_risc-v/userspace/hello/../user.ld

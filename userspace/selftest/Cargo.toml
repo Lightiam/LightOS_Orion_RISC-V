@@ -1,0 +1,9 @@
+[package]
+name = "selftest"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "LightOS self-test: exercises processes, syscalls, mmap from userspace"
+
+[dependencies]
+libc_shim = { path = "../libc_shim" }

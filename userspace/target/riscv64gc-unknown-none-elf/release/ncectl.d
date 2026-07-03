@@ -1,1 +1,0 @@
-/workspace/lightos_orion_risc-v/userspace/target/riscv64gc-unknown-none-elf/release/ncectl: /workspace/lightos_orion_risc-v/userspace/libc_shim/src/lib.rs /workspace/lightos_orion_risc-v/userspace/ncectl/../user.ld /workspace/lightos_orion_risc-v/userspace/ncectl/build.rs /workspace/lightos_orion_risc-v/userspace/ncectl/src/main.rs

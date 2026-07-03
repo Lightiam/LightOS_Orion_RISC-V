@@ -8,6 +8,21 @@ AI-workload-aware from the ground up.
 
 *Neural-native. Royalty-free. RISC-V first.*
 
+## Install & run
+
+LightOS runs under QEMU's RISC-V emulator — no hardware needed. Install
+`qemu-system-riscv64`, then:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Lightiam/LightOS_Orion_RISC-V/main/scripts/install.sh | bash
+lightos
+```
+
+You boot straight to an interactive shell. Or grab a bundle from the
+[Releases page](https://github.com/Lightiam/LightOS_Orion_RISC-V/releases)
+and run `./run.sh`, or build from source with `make run`. Full details
+in **[INSTALL.md](INSTALL.md)**. Exit the emulator with `Ctrl-A` then `x`.
+
 ## What works today
 
 Boot LightOS in QEMU and you get: a supervisor-mode kernel with Sv39
@@ -42,7 +57,8 @@ everything), `qemu-system-riscv64`, GNU make, python3, and
 ```sh
 make build   # userspace ELFs, kernel, (see also: make disk)
 make run     # boot to the interactive shell in QEMU
-make test    # full end-to-end boot test (36 assertions)
+make test    # full end-to-end boot test (35 assertions)
+make release # produce dist/lightos-<version>.tar.gz bundle
 make gdb     # boot halted with a GDB stub on :1234
 ```
 
@@ -68,7 +84,8 @@ kernel/
   fs/            VFS, Minix3 driver, embedded ramfs fallback
   drivers/       VirtIO MMIO transport + block device
   nce/           NCE HAL: descriptors, power states, affinity
-userspace/       cargo workspace: libc_shim, init, sh, hello, ncectl
+userspace/       cargo workspace: libc_shim, init, sh, hello,
+                 ncectl, selftest
 rootfs/          files installed into the Minix3 root image
 scripts/         mkfs_minix3.py, boot_test.sh, make_splash.sh
 ```

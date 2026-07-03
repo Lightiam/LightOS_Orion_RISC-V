@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["libc_shim", "init", "hello", "shell", "ncectl"]
+members = ["libc_shim", "init", "hello", "shell", "ncectl", "selftest"]
 
 [profile.release]
 panic = "abort"

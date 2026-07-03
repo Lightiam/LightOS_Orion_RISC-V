@@ -10,18 +10,30 @@ AI-workload-aware from the ground up.
 
 ## Install & run
 
-LightOS runs under QEMU's RISC-V emulator — no hardware needed. Install
-`qemu-system-riscv64`, then:
+LightOS runs under QEMU's RISC-V emulator — no hardware needed.
+
+**Linux / macOS / WSL** (bash — *not* Windows PowerShell), once a
+[release](https://github.com/Lightiam/LightOS_Orion_RISC-V/releases) is
+published:
 
 ```sh
+# install QEMU first: apt-get install qemu-system-misc  /  brew install qemu
 curl -fsSL https://raw.githubusercontent.com/Lightiam/LightOS_Orion_RISC-V/main/scripts/install.sh | bash
 lightos
 ```
 
-You boot straight to an interactive shell. Or grab a bundle from the
-[Releases page](https://github.com/Lightiam/LightOS_Orion_RISC-V/releases)
-and run `./run.sh`, or build from source with `make run`. Full details
-in **[INSTALL.md](INSTALL.md)**. Exit the emulator with `Ctrl-A` then `x`.
+**Works today from source** on any of the above (needs Rust, QEMU,
+make, python3, fsck.minix):
+
+```sh
+git clone https://github.com/Lightiam/LightOS_Orion_RISC-V
+cd LightOS_Orion_RISC-V && make run
+```
+
+You boot straight to an interactive shell. **Windows** users: use WSL,
+or native QEMU for Windows with the bundle's `run.ps1`. Full details
+including the Windows path in **[INSTALL.md](INSTALL.md)**. Exit the
+emulator with `Ctrl-A` then `x`.
 
 ## What works today
 

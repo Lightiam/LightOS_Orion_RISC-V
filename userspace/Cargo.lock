@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "httpget"
+version = "0.1.0"
+dependencies = [
+ "libc_shim",
+]
+
+[[package]]
 name = "init"
 version = "0.1.0"
 dependencies = [

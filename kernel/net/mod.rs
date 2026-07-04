@@ -11,6 +11,7 @@ pub mod ethernet;
 pub mod icmp;
 pub mod ipv4;
 pub mod socket;
+pub mod tcp;
 pub mod udp;
 
 use crate::drivers::virtio::net as driver;
@@ -172,6 +173,12 @@ fn handle_frame(frame: &[u8]) -> Option<Vec<u8>> {
                     }
                     None
                 }
+                ipv4::PROTO_TCP => {
+                    if let Some(seg) = tcp::parse(pkt.payload) {
+                        tcp::deliver(iface.ip, pkt.src, &seg);
+                    }
+                    None
+                }
                 _ => None,
             }
         }
@@ -233,6 +240,21 @@ pub fn send_udp(
     let dgram = udp::build(ip, dst_ip, src_port, dst_port, payload);
     let ident = IP_IDENT.fetch_add(1, Ordering::Relaxed);
     let pkt = ipv4::build(ip, dst_ip, ipv4::PROTO_UDP, &dgram, ident);
+    let frame = ethernet::build(gw_mac, mac, ethernet::ETHERTYPE_IPV4, &pkt);
+    driver::send(&frame)
+}
+
+/// Send a pre-built TCP `segment` (with its own checksum) to `dst_ip`,
+/// wrapped in IPv4 + Ethernet and routed via the gateway.
+pub fn send_tcp(dst_ip: [u8; 4], segment: &[u8]) -> Result<(), &'static str> {
+    let (mac, ip, gw_mac) = {
+        let guard = IFACE.lock();
+        let iface = guard.as_ref().ok_or("net: interface down")?;
+        (iface.mac, iface.ip, iface.gateway_mac)
+    };
+    let gw_mac = gw_mac.ok_or("net: gateway not resolved")?;
+    let ident = IP_IDENT.fetch_add(1, Ordering::Relaxed);
+    let pkt = ipv4::build(ip, dst_ip, ipv4::PROTO_TCP, segment, ident);
     let frame = ethernet::build(gw_mac, mac, ethernet::ETHERTYPE_IPV4, &pkt);
     driver::send(&frame)
 }

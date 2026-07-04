@@ -187,12 +187,23 @@ pub fn sys_close(tf: &mut TrapFrame) -> isize {
         .expect("close: no current process");
     match p.files.get_mut(fd as usize - 3) {
         Some(slot @ Some(_)) => {
-            if let Some(process::OpenFile {
-                kind: process::FdKind::Socket { idx },
-                ..
-            }) = *slot
-            {
-                crate::net::socket::free(idx);
+            match *slot {
+                Some(process::OpenFile {
+                    kind: process::FdKind::Socket { idx },
+                    ..
+                }) => crate::net::socket::free(idx),
+                Some(process::OpenFile {
+                    kind: process::FdKind::TcpSocket { idx },
+                    ..
+                }) => {
+                    crate::net::tcp::close_begin(idx);
+                    for _ in 0..2000 {
+                        crate::net::poll();
+                        crate::net::tcp::pump(idx);
+                    }
+                    crate::net::tcp::free(idx);
+                }
+                _ => {}
             }
             *slot = None;
             0
@@ -236,8 +247,8 @@ fn file_read(fd: usize, uva: usize, len: usize) -> isize {
             }
             return n as isize;
         }
-        // Sockets use recvfrom(), not read().
-        process::FdKind::Socket { .. } => return EBADF,
+        // Sockets use recvfrom()/recv(), not read().
+        process::FdKind::Socket { .. } | process::FdKind::TcpSocket { .. } => return EBADF,
     };
     let Ok(inode) = crate::fs::inode(ino) else {
         return EBADF;
@@ -458,6 +469,7 @@ pub fn sys_sched_getaffinity(tf: &mut TrapFrame) -> isize {
 // follow-up. addr structs are Linux `sockaddr_in` (16 bytes).
 // ---------------------------------------------------------------------
 const AF_INET: usize = 2;
+const SOCK_STREAM: usize = 1;
 const SOCK_DGRAM: usize = 2;
 const EPROTONOSUPPORT: isize = -93;
 const EADDRINUSE: isize = -98;
@@ -465,8 +477,14 @@ const ENETUNREACH: isize = -101;
 const EAGAIN: isize = -11;
 const EMSGSIZE: isize = -90;
 const ENFILE: isize = -23;
+const ENOTCONN: isize = -107;
+const ECONNREFUSED: isize = -111;
+const ECONNRESET: isize = -104;
+const ETIMEDOUT: isize = -110;
+/// Bounded poll budget for a blocking TCP operation.
+const TCP_POLL_BUDGET: usize = 20000;
 
-/// Socket-table index behind an fd, or None if the fd isn't a socket.
+/// UDP socket-table index behind an fd, or None if not a UDP socket.
 fn socket_idx(fd: usize) -> Option<usize> {
     if fd < 3 {
         return None;
@@ -476,6 +494,20 @@ fn socket_idx(fd: usize) -> Option<usize> {
     let p = procs.slots[cur].as_ref()?;
     match p.files.get(fd - 3).copied().flatten()?.kind {
         process::FdKind::Socket { idx } => Some(idx),
+        _ => None,
+    }
+}
+
+/// TCP socket-table index behind an fd, or None if not a TCP socket.
+fn tcp_idx(fd: usize) -> Option<usize> {
+    if fd < 3 {
+        return None;
+    }
+    let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
+    let procs = process::PROCS.lock();
+    let p = procs.slots[cur].as_ref()?;
+    match p.files.get(fd - 3).copied().flatten()?.kind {
+        process::FdKind::TcpSocket { idx } => Some(idx),
         _ => None,
     }
 }
@@ -501,15 +533,67 @@ fn install_fd(kind: process::FdKind) -> isize {
     (idx + 3) as isize
 }
 
-/// socket(domain, type, proto): only AF_INET/SOCK_DGRAM (UDP).
+/// socket(domain, type, proto): AF_INET with SOCK_DGRAM (UDP) or
+/// SOCK_STREAM (TCP).
 pub fn sys_socket(tf: &mut TrapFrame) -> isize {
-    if tf.a0() != AF_INET || (tf.a1() & 0xff) != SOCK_DGRAM {
+    if tf.a0() != AF_INET {
         return EPROTONOSUPPORT;
     }
-    let Some(idx) = crate::net::socket::alloc() else {
-        return ENFILE;
+    match tf.a1() & 0xff {
+        SOCK_DGRAM => match crate::net::socket::alloc() {
+            Some(idx) => install_fd(process::FdKind::Socket { idx }),
+            None => ENFILE,
+        },
+        SOCK_STREAM => match crate::net::tcp::alloc() {
+            Some(idx) => install_fd(process::FdKind::TcpSocket { idx }),
+            None => ENFILE,
+        },
+        _ => EPROTONOSUPPORT,
+    }
+}
+
+/// connect(fd, sockaddr_in, len): active-open a TCP connection and
+/// block (bounded) until the handshake completes.
+pub fn sys_connect(tf: &mut TrapFrame) -> isize {
+    let Some(idx) = tcp_idx(tf.a0()) else {
+        return EBADF; // connect() is TCP-only here
     };
-    install_fd(process::FdKind::Socket { idx })
+    if tf.a2() < 8 {
+        return EINVAL;
+    }
+    let (root_pa, _) = process::current_info();
+    let mut sa = [0u8; 8];
+    if uaccess::copy_in(mmu::table_at(root_pa), tf.a1(), &mut sa).is_err() {
+        return EFAULT;
+    }
+    let dst_port = u16::from_be_bytes([sa[2], sa[3]]);
+    let dst_ip = [sa[4], sa[5], sa[6], sa[7]];
+
+    let Some(our_ip) = crate::net::our_ip() else {
+        return ENETUNREACH;
+    };
+    if !crate::net::tcp::connect_begin(idx, our_ip, dst_ip, dst_port) {
+        return EBADF;
+    }
+    for _ in 0..TCP_POLL_BUDGET {
+        crate::net::poll();
+        crate::net::tcp::pump(idx);
+        match crate::net::tcp::state(idx) {
+            crate::net::tcp::State::Established => return 0,
+            crate::net::tcp::State::Closed => {
+                return if crate::net::tcp::was_reset(idx) {
+                    ECONNREFUSED
+                } else {
+                    ETIMEDOUT
+                };
+            }
+            _ => {}
+        }
+        for _ in 0..500 {
+            core::hint::spin_loop();
+        }
+    }
+    ETIMEDOUT
 }
 
 /// bind(fd, sockaddr_in, len): bind the local port (0 = ephemeral).
@@ -532,8 +616,13 @@ pub fn sys_bind(tf: &mut TrapFrame) -> isize {
     }
 }
 
-/// sendto(fd, buf, len, flags, dest_addr, addrlen): send one datagram.
+/// sendto/send(fd, buf, len, flags, dest_addr, addrlen). On a TCP
+/// socket the destination is ignored (already connected); on UDP it
+/// addresses one datagram.
 pub fn sys_sendto(tf: &mut TrapFrame) -> isize {
+    if let Some(tidx) = tcp_idx(tf.a0()) {
+        return tcp_send(tidx, tf.a1(), tf.a2());
+    }
     let Some(idx) = socket_idx(tf.a0()) else {
         return EBADF;
     };
@@ -574,9 +663,54 @@ pub fn sys_sendto(tf: &mut TrapFrame) -> isize {
     }
 }
 
-/// recvfrom(fd, buf, len, flags, src_addr, addrlen): block (bounded)
-/// until a datagram arrives; fills src_addr when non-null.
+/// Send `len` bytes from `buf` over a connected TCP socket, in
+/// segments, blocking (bounded) until they are acknowledged.
+fn tcp_send(idx: usize, buf: usize, len: usize) -> isize {
+    if crate::net::tcp::state(idx) != crate::net::tcp::State::Established {
+        return ENOTCONN;
+    }
+    let (root_pa, _) = process::current_info();
+    let root = mmu::table_at(root_pa);
+    let mut sent = 0;
+    while sent < len {
+        let chunk = (len - sent).min(1024); // one segment
+        let mut payload = alloc::vec![0u8; chunk];
+        if uaccess::copy_in(root, buf + sent, &mut payload).is_err() {
+            return EFAULT;
+        }
+        if !crate::net::tcp::send_data(idx, &payload) {
+            return ENOTCONN;
+        }
+        let mut acked = false;
+        for _ in 0..TCP_POLL_BUDGET {
+            crate::net::poll();
+            crate::net::tcp::pump(idx);
+            if crate::net::tcp::was_reset(idx) {
+                return ECONNRESET;
+            }
+            if crate::net::tcp::send_complete(idx) {
+                acked = true;
+                break;
+            }
+            for _ in 0..200 {
+                core::hint::spin_loop();
+            }
+        }
+        if !acked {
+            return ETIMEDOUT;
+        }
+        sent += chunk;
+    }
+    sent as isize
+}
+
+/// recvfrom/recv(fd, buf, len, ...). On a TCP socket returns the next
+/// in-order bytes (0 at end of stream); on UDP returns one datagram
+/// and fills src_addr when non-null.
 pub fn sys_recvfrom(tf: &mut TrapFrame) -> isize {
+    if let Some(tidx) = tcp_idx(tf.a0()) {
+        return tcp_recv(tidx, tf.a1(), tf.a2());
+    }
     let Some(idx) = socket_idx(tf.a0()) else {
         return EBADF;
     };
@@ -614,6 +748,34 @@ pub fn sys_recvfrom(tf: &mut TrapFrame) -> isize {
         let _ = uaccess::copy_out(root, src_addr, &sa);
     }
     n as isize
+}
+
+/// Read the next in-order bytes from a TCP stream; 0 = end of stream.
+fn tcp_recv(idx: usize, buf: usize, len: usize) -> isize {
+    let cap = len.min(1024);
+    let mut tmp = [0u8; 1024];
+    for _ in 0..TCP_POLL_BUDGET {
+        crate::net::poll();
+        crate::net::tcp::pump(idx);
+        let got = crate::net::tcp::recv_buffered(idx, &mut tmp[..cap]);
+        if got > 0 {
+            let (root_pa, _) = process::current_info();
+            if uaccess::copy_out(mmu::table_at(root_pa), buf, &tmp[..got]).is_err() {
+                return EFAULT;
+            }
+            return got as isize;
+        }
+        if crate::net::tcp::was_reset(idx) {
+            return ECONNRESET;
+        }
+        if crate::net::tcp::at_eof(idx) {
+            return 0; // peer closed and all data consumed
+        }
+        for _ in 0..200 {
+            core::hint::spin_loop();
+        }
+    }
+    EAGAIN
 }
 
 /// sysinfo(*info): fill a 32-byte LightOS sysinfo record —

@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 
 pub const PROTO_ICMP: u8 = 1;
+pub const PROTO_TCP: u8 = 6;
 pub const PROTO_UDP: u8 = 17;
 pub const HDR_LEN: usize = 20;
 

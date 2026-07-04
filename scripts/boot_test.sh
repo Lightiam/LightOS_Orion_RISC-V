@@ -9,9 +9,16 @@ set -u
 
 KERNEL=${KERNEL:-target/riscv64gc-unknown-none-elf/debug/lightos}
 DISK=${DISK:-disk.img}
-TIMEOUT=${TIMEOUT:-35}
+TIMEOUT=${TIMEOUT:-45}
 OUT=$(mktemp)
-trap 'rm -f "$OUT"' EXIT
+
+# Host HTTP server for the TCP test. QEMU SLIRP maps the host to
+# 10.0.2.2 for the guest, so the guest's httpget reaches this with no
+# real network egress (hermetic / CI-safe).
+HTTPD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "$HTTPD_DIR/test_httpd.py" &
+HTTPD_PID=$!
+trap 'rm -f "$OUT"; kill "$HTTPD_PID" 2>/dev/null' EXIT
 
 [ -f "$DISK" ] || { echo "missing $DISK — run 'make test' (builds the rootfs image)"; exit 1; }
 
@@ -36,6 +43,7 @@ feed_input() {
     printf 'uptime\n';                   sleep 1
     printf 'ps\n';                       sleep 1
     printf 'netprobe\n';                 sleep 5   # UDP socket DNS round-trip
+    printf 'httpget\n';                  sleep 6   # TCP socket HTTP GET
     printf 'poweroff\n';                 sleep 2   # clean machine shutdown
 }
 
@@ -142,6 +150,11 @@ expect "\[net\] milestone: ARP + ICMP over virtio-net OK"
 expect "netprobe: DNS query for example.com"
 expect "netprobe: reply .* bytes from 10.0.2.3:53"
 expect "\[net\] udp round-trip OK"
+
+# TCP sockets: a userspace program does an HTTP GET against the host.
+expect "httpget: connected"
+expect "httpget: status: HTTP/1.0 200 OK"
+expect "\[net\] tcp http OK"
 
 # System commands: uname / free / uptime / ps / poweroff.
 expect "LightOS .* riscv64 QEMU-virt"    # uname

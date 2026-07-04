@@ -24,6 +24,7 @@ pub const SYS_GETPID: usize = 172;
 pub const SYS_SYSINFO: usize = 179;
 pub const SYS_SOCKET: usize = 198;
 pub const SYS_BIND: usize = 200;
+pub const SYS_CONNECT: usize = 203;
 pub const SYS_SENDTO: usize = 206;
 pub const SYS_RECVFROM: usize = 207;
 pub const SYS_MUNMAP: usize = 215;
@@ -59,6 +60,7 @@ pub fn dispatch(tf: &mut TrapFrame) -> ! {
         SYS_PROCLIST => posix::sys_proclist(tf),
         SYS_SOCKET => posix::sys_socket(tf),
         SYS_BIND => posix::sys_bind(tf),
+        SYS_CONNECT => posix::sys_connect(tf),
         SYS_SENDTO => posix::sys_sendto(tf),
         SYS_RECVFROM => posix::sys_recvfrom(tf),
         _ => {

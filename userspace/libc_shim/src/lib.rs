@@ -21,6 +21,7 @@ pub const SYS_GETPID: usize = 172;
 pub const SYS_SYSINFO: usize = 179;
 pub const SYS_SOCKET: usize = 198;
 pub const SYS_BIND: usize = 200;
+pub const SYS_CONNECT: usize = 203;
 pub const SYS_SENDTO: usize = 206;
 pub const SYS_RECVFROM: usize = 207;
 pub const SYS_MUNMAP: usize = 215;
@@ -172,9 +173,48 @@ pub fn wait(status: &mut i32) -> i32 {
     ) as i32
 }
 
-// ---- UDP sockets (AF_INET / SOCK_DGRAM) ----
+// ---- sockets (AF_INET) ----
 pub const AF_INET: usize = 2;
+pub const SOCK_STREAM: usize = 1;
 pub const SOCK_DGRAM: usize = 2;
+
+/// Create a TCP (stream) socket. Returns an fd or a negative errno.
+pub fn tcp_socket() -> i32 {
+    syscall(SYS_SOCKET, AF_INET, SOCK_STREAM, 0, 0) as i32
+}
+
+/// Connect a TCP socket to `ip`:`port` (blocks through the handshake).
+pub fn connect(fd: i32, ip: [u8; 4], port: u16) -> isize {
+    let sa = sockaddr_in(ip, port);
+    syscall(SYS_CONNECT, fd as usize, sa.as_ptr() as usize, sa.len(), 0)
+}
+
+/// Send bytes on a connected TCP socket. Returns bytes sent.
+pub fn send(fd: i32, buf: &[u8]) -> isize {
+    syscall5(
+        SYS_SENDTO,
+        fd as usize,
+        buf.as_ptr() as usize,
+        buf.len(),
+        0,
+        0,
+        0,
+    )
+}
+
+/// Receive bytes from a connected TCP socket. Returns bytes read, 0 at
+/// end of stream, or a negative errno.
+pub fn recv(fd: i32, buf: &mut [u8]) -> isize {
+    syscall5(
+        SYS_RECVFROM,
+        fd as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+        0,
+        0,
+    )
+}
 
 /// Build a 16-byte `sockaddr_in` for `ip`:`port`.
 pub fn sockaddr_in(ip: [u8; 4], port: u16) -> [u8; 16] {

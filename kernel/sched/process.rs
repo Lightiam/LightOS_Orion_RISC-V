@@ -62,6 +62,8 @@ pub enum FdKind {
     Nce { slot: usize },
     /// UDP socket (index into the kernel socket table).
     Socket { idx: usize },
+    /// TCP socket (index into the kernel TCP table).
+    TcpSocket { idx: usize },
 }
 
 /// An open descriptor (fds 0-2 are the console and have no entry

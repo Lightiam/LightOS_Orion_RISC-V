@@ -8,7 +8,7 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use lightos::{fs, mem, nce, sched, trap, uart, uart_println};
+use lightos::{fs, mem, nce, net, sched, trap, uart, uart_println};
 
 core::arch::global_asm!(include_str!("../boot/entry.S"));
 
@@ -95,6 +95,9 @@ extern "C" fn kinit(hartid: usize, dtb: usize) -> ! {
     trap::init();
     fs::mount_root();
     nce::init(dtb);
+    if net::init() {
+        net::self_test();
+    }
 
     let pid = sched::process::spawn("init").expect("failed to spawn init");
     uart_println!("proc: spawned init as pid {}", pid);

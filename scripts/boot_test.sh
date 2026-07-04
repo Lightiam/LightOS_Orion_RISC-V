@@ -41,6 +41,8 @@ feed_input() {
 feed_input | timeout --foreground "$TIMEOUT" qemu-system-riscv64 \
     -machine virt -cpu rv64 -smp 4 -m 128M \
     -bios none -kernel "$KERNEL" \
+    -netdev user,id=net0 \
+    -device virtio-net-device,netdev=net0 \
     -drive file="$DISK",format=raw,id=hd0 \
     -device virtio-blk-device,drive=hd0 \
     -serial stdio -display none \
@@ -127,6 +129,13 @@ expect "idle->turbo correctly rejected"
 expect "nce0: state=turbo"
 expect "sched_setaffinity(nce0) -> 0"
 expect "\[phase 7\] milestone"
+
+# Networking: virtio-net + ARP + ICMP against the QEMU gateway.
+expect "virtio-net: .* up, MAC"
+expect "net: interface up 10.0.2.15/24"
+expect "net: gateway 10.0.2.2 is at"
+expect "net: ping reply from 10.0.2.2"
+expect "\[net\] milestone: ARP + ICMP over virtio-net OK"
 
 # System commands: uname / free / uptime / ps / poweroff.
 expect "LightOS .* riscv64 QEMU-virt"    # uname

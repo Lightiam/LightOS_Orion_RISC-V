@@ -35,6 +35,7 @@ feed_input() {
     printf 'free\n';                     sleep 1
     printf 'uptime\n';                   sleep 1
     printf 'ps\n';                       sleep 1
+    printf 'netprobe\n';                 sleep 5   # UDP socket DNS round-trip
     printf 'poweroff\n';                 sleep 2   # clean machine shutdown
 }
 
@@ -136,6 +137,11 @@ expect "net: interface up 10.0.2.15/24"
 expect "net: gateway 10.0.2.2 is at"
 expect "net: ping reply from 10.0.2.2"
 expect "\[net\] milestone: ARP + ICMP over virtio-net OK"
+
+# UDP sockets: a userspace program does a DNS request/response.
+expect "netprobe: DNS query for example.com"
+expect "netprobe: reply .* bytes from 10.0.2.3:53"
+expect "\[net\] udp round-trip OK"
 
 # System commands: uname / free / uptime / ps / poweroff.
 expect "LightOS .* riscv64 QEMU-virt"    # uname

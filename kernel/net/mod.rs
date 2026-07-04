@@ -10,6 +10,8 @@ pub mod arp;
 pub mod ethernet;
 pub mod icmp;
 pub mod ipv4;
+pub mod socket;
+pub mod udp;
 
 use crate::drivers::virtio::net as driver;
 use crate::lock::SpinLock;
@@ -134,26 +136,39 @@ fn handle_frame(frame: &[u8]) -> Option<Vec<u8>> {
         }
         ethernet::ETHERTYPE_IPV4 => {
             let pkt = ipv4::parse(eth.payload)?;
-            if pkt.dst != iface.ip || pkt.proto != ipv4::PROTO_ICMP {
+            if pkt.dst != iface.ip {
                 return None;
             }
-            let msg = icmp::parse(pkt.payload)?;
-            match msg.msg_type {
-                icmp::TYPE_ECHO_REQUEST => {
-                    // Reply, swapping src/dst.
-                    let reply = icmp::build(icmp::TYPE_ECHO_REPLY, msg.id, msg.seq, msg.payload);
-                    let ident = IP_IDENT.fetch_add(1, Ordering::Relaxed);
-                    let ip = ipv4::build(iface.ip, pkt.src, ipv4::PROTO_ICMP, &reply, ident);
-                    Some(ethernet::build(
-                        eth.src,
-                        iface.mac,
-                        ethernet::ETHERTYPE_IPV4,
-                        &ip,
-                    ))
+            match pkt.proto {
+                ipv4::PROTO_ICMP => {
+                    let msg = icmp::parse(pkt.payload)?;
+                    match msg.msg_type {
+                        icmp::TYPE_ECHO_REQUEST => {
+                            // Reply, swapping src/dst.
+                            let reply =
+                                icmp::build(icmp::TYPE_ECHO_REPLY, msg.id, msg.seq, msg.payload);
+                            let ident = IP_IDENT.fetch_add(1, Ordering::Relaxed);
+                            let ip =
+                                ipv4::build(iface.ip, pkt.src, ipv4::PROTO_ICMP, &reply, ident);
+                            Some(ethernet::build(
+                                eth.src,
+                                iface.mac,
+                                ethernet::ETHERTYPE_IPV4,
+                                &ip,
+                            ))
+                        }
+                        icmp::TYPE_ECHO_REPLY => {
+                            if pkt.src == iface.gateway {
+                                iface.ping_replies += 1;
+                            }
+                            None
+                        }
+                        _ => None,
+                    }
                 }
-                icmp::TYPE_ECHO_REPLY => {
-                    if pkt.src == iface.gateway {
-                        iface.ping_replies += 1;
+                ipv4::PROTO_UDP => {
+                    if let Some(d) = udp::parse(pkt.payload) {
+                        socket::deliver(d.dst_port, pkt.src, d.src_port, d.payload);
                     }
                     None
                 }
@@ -192,6 +207,34 @@ fn send_ping(target: [u8; 4], target_mac: [u8; 6], seq: u16) {
     let pkt = ipv4::build(ip, target, ipv4::PROTO_ICMP, &echo, ident);
     let frame = ethernet::build(target_mac, mac, ethernet::ETHERTYPE_IPV4, &pkt);
     let _ = driver::send(&frame);
+}
+
+/// Our configured IPv4 address, if the interface is up.
+pub fn our_ip() -> Option<[u8; 4]> {
+    IFACE.lock().as_ref().map(|i| i.ip)
+}
+
+/// Send a UDP datagram to `dst_ip:dst_port` from `src_port`. Routes
+/// everything via the (ARP-resolved) gateway, which matches QEMU
+/// SLIRP. Returns an error if the interface isn't up or the gateway
+/// MAC isn't known yet.
+pub fn send_udp(
+    dst_ip: [u8; 4],
+    dst_port: u16,
+    src_port: u16,
+    payload: &[u8],
+) -> Result<(), &'static str> {
+    let (mac, ip, gw_mac) = {
+        let guard = IFACE.lock();
+        let iface = guard.as_ref().ok_or("net: interface down")?;
+        (iface.mac, iface.ip, iface.gateway_mac)
+    };
+    let gw_mac = gw_mac.ok_or("net: gateway not resolved")?;
+    let dgram = udp::build(ip, dst_ip, src_port, dst_port, payload);
+    let ident = IP_IDENT.fetch_add(1, Ordering::Relaxed);
+    let pkt = ipv4::build(ip, dst_ip, ipv4::PROTO_UDP, &dgram, ident);
+    let frame = ethernet::build(gw_mac, mac, ethernet::ETHERTYPE_IPV4, &pkt);
+    driver::send(&frame)
 }
 
 /// Spin-poll the RX ring up to a budget, returning early when `done`

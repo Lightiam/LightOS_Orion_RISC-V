@@ -22,6 +22,10 @@ pub const SYS_SCHED_GETAFFINITY: usize = 123;
 pub const SYS_REBOOT: usize = 142;
 pub const SYS_GETPID: usize = 172;
 pub const SYS_SYSINFO: usize = 179;
+pub const SYS_SOCKET: usize = 198;
+pub const SYS_BIND: usize = 200;
+pub const SYS_SENDTO: usize = 206;
+pub const SYS_RECVFROM: usize = 207;
 pub const SYS_MUNMAP: usize = 215;
 pub const SYS_CLONE: usize = 220;
 pub const SYS_EXECVE: usize = 221;
@@ -53,6 +57,10 @@ pub fn dispatch(tf: &mut TrapFrame) -> ! {
         SYS_SYSINFO => posix::sys_sysinfo(tf),
         SYS_REBOOT => posix::sys_reboot(tf), // may never return
         SYS_PROCLIST => posix::sys_proclist(tf),
+        SYS_SOCKET => posix::sys_socket(tf),
+        SYS_BIND => posix::sys_bind(tf),
+        SYS_SENDTO => posix::sys_sendto(tf),
+        SYS_RECVFROM => posix::sys_recvfrom(tf),
         _ => {
             uart_println!("syscall: unimplemented nr {}", nr);
             ENOSYS

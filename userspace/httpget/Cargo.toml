@@ -1,0 +1,9 @@
+[package]
+name = "httpget"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "TCP client test: HTTP GET over the socket API"
+
+[dependencies]
+libc_shim = { path = "../libc_shim" }

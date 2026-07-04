@@ -53,6 +53,7 @@ layer exposed as `/dev/nce*` devices.
 | 5 | VirtIO block driver, Minix3 root FS, VFS, fd table | done |
 | 6 | Interactive shell: cd, pwd, ls, cat, echo, externals | done |
 | 7 | NCE HAL: descriptors, power states, affinity, /dev/nce* | done |
+| 8 | Networking: virtio-net + Ethernet/ARP/IPv4/ICMP, boot ping | done |
 
 Every phase is verified by an end-to-end QEMU boot test
 (`scripts/boot_test.sh`) that boots the kernel on emulated hardware,

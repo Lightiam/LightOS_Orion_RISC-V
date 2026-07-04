@@ -14,6 +14,7 @@ pub mod fs;
 pub mod lock;
 pub mod mem;
 pub mod nce;
+pub mod net;
 pub mod power;
 pub mod sched;
 pub mod syscall;

@@ -7,6 +7,7 @@
 #![allow(unsafe_code)] // MMIO + shared DMA rings are raw memory by nature
 
 pub mod blk;
+pub mod net;
 
 use crate::mem::layout::{PAGE_SIZE, VIRTIO_BASE};
 use crate::uart_println;
@@ -15,10 +16,10 @@ use crate::uart_println;
 const MAGIC_VALUE: usize = 0x000;
 const VERSION: usize = 0x004;
 const DEVICE_ID: usize = 0x008;
-const HOST_FEATURES: usize = 0x010;
-const GUEST_FEATURES: usize = 0x020;
-const GUEST_PAGE_SIZE: usize = 0x028;
-const QUEUE_SEL: usize = 0x030;
+pub(crate) const HOST_FEATURES: usize = 0x010;
+pub(crate) const GUEST_FEATURES: usize = 0x020;
+pub(crate) const GUEST_PAGE_SIZE: usize = 0x028;
+pub(crate) const QUEUE_SEL: usize = 0x030;
 const QUEUE_NUM_MAX: usize = 0x034;
 const QUEUE_NUM: usize = 0x038;
 const QUEUE_ALIGN: usize = 0x03c;
@@ -26,15 +27,19 @@ const QUEUE_PFN: usize = 0x040;
 pub(crate) const QUEUE_NOTIFY: usize = 0x050;
 pub(crate) const INTERRUPT_STATUS: usize = 0x060;
 pub(crate) const INTERRUPT_ACK: usize = 0x064;
-const STATUS: usize = 0x070;
+pub(crate) const STATUS: usize = 0x070;
 pub(crate) const CONFIG: usize = 0x100;
 
-const MAGIC: u32 = 0x7472_6976; // "virt"
+pub(crate) const MAGIC: u32 = 0x7472_6976; // "virt"
 const DEVICE_ID_BLOCK: u32 = 2;
+pub(crate) const DEVICE_ID_NET: u32 = 1;
+pub(crate) const MAGIC_VALUE_OFF: usize = MAGIC_VALUE;
+pub(crate) const VERSION_OFF: usize = VERSION;
+pub(crate) const DEVICE_ID_OFF: usize = DEVICE_ID;
 
-const STATUS_ACKNOWLEDGE: u32 = 1;
-const STATUS_DRIVER: u32 = 2;
-const STATUS_DRIVER_OK: u32 = 4;
+pub(crate) const STATUS_ACKNOWLEDGE: u32 = 1;
+pub(crate) const STATUS_DRIVER: u32 = 2;
+pub(crate) const STATUS_DRIVER_OK: u32 = 4;
 
 /// Number of descriptors per queue (power of two).
 pub const QUEUE_SIZE: usize = 8;
@@ -96,9 +101,9 @@ pub struct VirtQueue {
 unsafe impl Send for VirtQueue {}
 
 impl VirtQueue {
-    /// Legacy queue 0 setup on the transport at `base`.
-    fn new(base: usize) -> Option<VirtQueue> {
-        reg_write(base, QUEUE_SEL, 0);
+    /// Legacy setup of queue `idx` on the transport at `base`.
+    pub(crate) fn new(base: usize, idx: u32) -> Option<VirtQueue> {
+        reg_write(base, QUEUE_SEL, idx);
         let max = reg_read(base, QUEUE_NUM_MAX);
         if max == 0 || (max as usize) < QUEUE_SIZE {
             return None;
@@ -155,7 +160,7 @@ pub fn probe_block_device() -> Option<VirtQueue> {
         reg_write(base, GUEST_FEATURES, 0);
         reg_write(base, GUEST_PAGE_SIZE, PAGE_SIZE as u32);
 
-        let queue = VirtQueue::new(base)?;
+        let queue = VirtQueue::new(base, 0)?;
         reg_write(
             base,
             STATUS,

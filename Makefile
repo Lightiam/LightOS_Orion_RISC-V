@@ -15,6 +15,8 @@ QEMU_ARGS = \
 	-kernel $(KERNEL) \
 	-drive file=$(DISK),format=raw,id=hd0 \
 	-device virtio-blk-device,drive=hd0 \
+	-netdev user,id=net0 \
+	-device virtio-net-device,netdev=net0 \
 	-serial stdio \
 	-display none
 

@@ -1,0 +1,9 @@
+[package]
+name = "netprobe"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "UDP socket test: DNS query to the gateway resolver"
+
+[dependencies]
+libc_shim = { path = "../libc_shim" }

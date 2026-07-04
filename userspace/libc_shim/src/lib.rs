@@ -19,6 +19,10 @@ pub const SYS_SCHED_GETAFFINITY: usize = 123;
 pub const SYS_REBOOT: usize = 142;
 pub const SYS_GETPID: usize = 172;
 pub const SYS_SYSINFO: usize = 179;
+pub const SYS_SOCKET: usize = 198;
+pub const SYS_BIND: usize = 200;
+pub const SYS_SENDTO: usize = 206;
+pub const SYS_RECVFROM: usize = 207;
 pub const SYS_MUNMAP: usize = 215;
 pub const SYS_CLONE: usize = 220; // plain fork semantics on LightOS
 pub const SYS_EXECVE: usize = 221;
@@ -51,6 +55,33 @@ pub fn syscall(n: usize, a0: usize, a1: usize, a2: usize, a3: usize) -> isize {
             in("a1") a1,
             in("a2") a2,
             in("a3") a3,
+        );
+    }
+    ret
+}
+
+/// Raw syscall with 6 arguments (for sendto/recvfrom).
+#[allow(clippy::too_many_arguments)]
+pub fn syscall5(
+    n: usize,
+    a0: usize,
+    a1: usize,
+    a2: usize,
+    a3: usize,
+    a4: usize,
+    a5: usize,
+) -> isize {
+    let ret: isize;
+    unsafe {
+        core::arch::asm!(
+            "ecall",
+            in("a7") n,
+            inlateout("a0") a0 => ret,
+            in("a1") a1,
+            in("a2") a2,
+            in("a3") a3,
+            in("a4") a4,
+            in("a5") a5,
         );
     }
     ret
@@ -139,6 +170,62 @@ pub fn wait(status: &mut i32) -> i32 {
         0,
         0,
     ) as i32
+}
+
+// ---- UDP sockets (AF_INET / SOCK_DGRAM) ----
+pub const AF_INET: usize = 2;
+pub const SOCK_DGRAM: usize = 2;
+
+/// Build a 16-byte `sockaddr_in` for `ip`:`port`.
+pub fn sockaddr_in(ip: [u8; 4], port: u16) -> [u8; 16] {
+    let mut sa = [0u8; 16];
+    sa[0] = AF_INET as u8; // sin_family (little-endian u16)
+    sa[2..4].copy_from_slice(&port.to_be_bytes()); // sin_port (network order)
+    sa[4..8].copy_from_slice(&ip); // sin_addr
+    sa
+}
+
+/// Create a UDP socket. Returns an fd, or a negative errno.
+pub fn socket() -> i32 {
+    syscall(SYS_SOCKET, AF_INET, SOCK_DGRAM, 0, 0) as i32
+}
+
+/// Bind the socket to a local UDP `port` (0 = ephemeral).
+pub fn bind(fd: i32, port: u16) -> isize {
+    let sa = sockaddr_in([0, 0, 0, 0], port);
+    syscall(SYS_BIND, fd as usize, sa.as_ptr() as usize, sa.len(), 0)
+}
+
+/// Send `buf` to `ip`:`port`. Returns bytes sent or a negative errno.
+pub fn sendto(fd: i32, buf: &[u8], ip: [u8; 4], port: u16) -> isize {
+    let sa = sockaddr_in(ip, port);
+    syscall5(
+        SYS_SENDTO,
+        fd as usize,
+        buf.as_ptr() as usize,
+        buf.len(),
+        0,
+        sa.as_ptr() as usize,
+        sa.len(),
+    )
+}
+
+/// Receive a datagram into `buf`. Returns (bytes, src_ip, src_port); a
+/// negative byte count is an errno (e.g. -11 EAGAIN on timeout).
+pub fn recvfrom(fd: i32, buf: &mut [u8]) -> (isize, [u8; 4], u16) {
+    let mut sa = [0u8; 16];
+    let n = syscall5(
+        SYS_RECVFROM,
+        fd as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        0,
+        sa.as_mut_ptr() as usize,
+        sa.len(),
+    );
+    let port = u16::from_be_bytes([sa[2], sa[3]]);
+    let ip = [sa[4], sa[5], sa[6], sa[7]];
+    (n, ip, port)
 }
 
 /// System information (uptime seconds, total RAM, free RAM, process

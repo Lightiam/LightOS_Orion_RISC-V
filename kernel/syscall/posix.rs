@@ -187,6 +187,13 @@ pub fn sys_close(tf: &mut TrapFrame) -> isize {
         .expect("close: no current process");
     match p.files.get_mut(fd as usize - 3) {
         Some(slot @ Some(_)) => {
+            if let Some(process::OpenFile {
+                kind: process::FdKind::Socket { idx },
+                ..
+            }) = *slot
+            {
+                crate::net::socket::free(idx);
+            }
             *slot = None;
             0
         }
@@ -229,6 +236,8 @@ fn file_read(fd: usize, uva: usize, len: usize) -> isize {
             }
             return n as isize;
         }
+        // Sockets use recvfrom(), not read().
+        process::FdKind::Socket { .. } => return EBADF,
     };
     let Ok(inode) = crate::fs::inode(ino) else {
         return EBADF;
@@ -441,6 +450,170 @@ pub fn sys_sched_getaffinity(tf: &mut TrapFrame) -> isize {
         return EFAULT;
     }
     len as isize
+}
+
+// ---------------------------------------------------------------------
+// UDP sockets. Blocking recvfrom uses a bounded busy-poll of the RX
+// ring (single-hart, non-preemptible kernel); IRQ-driven wakeups are a
+// follow-up. addr structs are Linux `sockaddr_in` (16 bytes).
+// ---------------------------------------------------------------------
+const AF_INET: usize = 2;
+const SOCK_DGRAM: usize = 2;
+const EPROTONOSUPPORT: isize = -93;
+const EADDRINUSE: isize = -98;
+const ENETUNREACH: isize = -101;
+const EAGAIN: isize = -11;
+const EMSGSIZE: isize = -90;
+const ENFILE: isize = -23;
+
+/// Socket-table index behind an fd, or None if the fd isn't a socket.
+fn socket_idx(fd: usize) -> Option<usize> {
+    if fd < 3 {
+        return None;
+    }
+    let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
+    let procs = process::PROCS.lock();
+    let p = procs.slots[cur].as_ref()?;
+    match p.files.get(fd - 3).copied().flatten()?.kind {
+        process::FdKind::Socket { idx } => Some(idx),
+        _ => None,
+    }
+}
+
+/// Install a new descriptor of `kind` in the current process; returns fd.
+fn install_fd(kind: process::FdKind) -> isize {
+    let cur = crate::sched::CURRENT.load(core::sync::atomic::Ordering::Relaxed);
+    let mut procs = process::PROCS.lock();
+    let Some(p) = procs.slots[cur].as_mut() else {
+        return EBADF;
+    };
+    let file = process::OpenFile { kind, pos: 0 };
+    let idx = match p.files.iter().position(|f| f.is_none()) {
+        Some(i) => {
+            p.files[i] = Some(file);
+            i
+        }
+        None => {
+            p.files.push(Some(file));
+            p.files.len() - 1
+        }
+    };
+    (idx + 3) as isize
+}
+
+/// socket(domain, type, proto): only AF_INET/SOCK_DGRAM (UDP).
+pub fn sys_socket(tf: &mut TrapFrame) -> isize {
+    if tf.a0() != AF_INET || (tf.a1() & 0xff) != SOCK_DGRAM {
+        return EPROTONOSUPPORT;
+    }
+    let Some(idx) = crate::net::socket::alloc() else {
+        return ENFILE;
+    };
+    install_fd(process::FdKind::Socket { idx })
+}
+
+/// bind(fd, sockaddr_in, len): bind the local port (0 = ephemeral).
+pub fn sys_bind(tf: &mut TrapFrame) -> isize {
+    let Some(idx) = socket_idx(tf.a0()) else {
+        return EBADF;
+    };
+    if tf.a2() < 8 {
+        return EINVAL;
+    }
+    let (root_pa, _) = process::current_info();
+    let mut sa = [0u8; 8];
+    if uaccess::copy_in(mmu::table_at(root_pa), tf.a1(), &mut sa).is_err() {
+        return EFAULT;
+    }
+    let port = u16::from_be_bytes([sa[2], sa[3]]);
+    match crate::net::socket::bind(idx, port) {
+        Some(_) => 0,
+        None => EADDRINUSE,
+    }
+}
+
+/// sendto(fd, buf, len, flags, dest_addr, addrlen): send one datagram.
+pub fn sys_sendto(tf: &mut TrapFrame) -> isize {
+    let Some(idx) = socket_idx(tf.a0()) else {
+        return EBADF;
+    };
+    let buf = tf.a1();
+    let len = tf.a2();
+    if tf.a5() < 8 {
+        return EINVAL;
+    }
+    if len > 1472 {
+        return EMSGSIZE; // keep within one Ethernet frame
+    }
+    let (root_pa, _) = process::current_info();
+    let root = mmu::table_at(root_pa);
+
+    let mut sa = [0u8; 8];
+    if uaccess::copy_in(root, tf.a4(), &mut sa).is_err() {
+        return EFAULT;
+    }
+    let dst_port = u16::from_be_bytes([sa[2], sa[3]]);
+    let dst_ip = [sa[4], sa[5], sa[6], sa[7]];
+
+    // Auto-bind an ephemeral source port on first send.
+    let mut src_port = crate::net::socket::local_port(idx);
+    if src_port == 0 {
+        match crate::net::socket::bind(idx, 0) {
+            Some(p) => src_port = p,
+            None => return EADDRINUSE,
+        }
+    }
+
+    let mut payload = alloc::vec![0u8; len];
+    if uaccess::copy_in(root, buf, &mut payload).is_err() {
+        return EFAULT;
+    }
+    match crate::net::send_udp(dst_ip, dst_port, src_port, &payload) {
+        Ok(()) => len as isize,
+        Err(_) => ENETUNREACH,
+    }
+}
+
+/// recvfrom(fd, buf, len, flags, src_addr, addrlen): block (bounded)
+/// until a datagram arrives; fills src_addr when non-null.
+pub fn sys_recvfrom(tf: &mut TrapFrame) -> isize {
+    let Some(idx) = socket_idx(tf.a0()) else {
+        return EBADF;
+    };
+    let buf = tf.a1();
+    let len = tf.a2();
+    let src_addr = tf.a4();
+
+    // Bounded busy-poll: drain the RX ring, check our queue.
+    let mut got = None;
+    for _ in 0..4000 {
+        crate::net::poll();
+        if let Some(d) = crate::net::socket::recv(idx) {
+            got = Some(d);
+            break;
+        }
+        for _ in 0..2000 {
+            core::hint::spin_loop();
+        }
+    }
+    let Some(d) = got else {
+        return EAGAIN;
+    };
+
+    let (root_pa, _) = process::current_info();
+    let root = mmu::table_at(root_pa);
+    let n = len.min(d.data.len());
+    if uaccess::copy_out(root, buf, &d.data[..n]).is_err() {
+        return EFAULT;
+    }
+    if src_addr != 0 {
+        let mut sa = [0u8; 16];
+        sa[0] = AF_INET as u8; // sin_family (little-endian u16)
+        sa[2..4].copy_from_slice(&d.src_port.to_be_bytes());
+        sa[4..8].copy_from_slice(&d.src_ip);
+        let _ = uaccess::copy_out(root, src_addr, &sa);
+    }
+    n as isize
 }
 
 /// sysinfo(*info): fill a 32-byte LightOS sysinfo record —

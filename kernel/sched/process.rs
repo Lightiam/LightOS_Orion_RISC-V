@@ -60,6 +60,8 @@ pub enum FdKind {
     File { ino: u32 },
     /// NCE character device (/dev/nceN).
     Nce { slot: usize },
+    /// UDP socket (index into the kernel socket table).
+    Socket { idx: usize },
 }
 
 /// An open descriptor (fds 0-2 are the console and have no entry

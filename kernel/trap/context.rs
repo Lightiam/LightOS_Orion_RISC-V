@@ -49,6 +49,12 @@ impl TrapFrame {
     pub fn a3(&self) -> usize {
         self.regs[13]
     }
+    pub fn a4(&self) -> usize {
+        self.regs[14]
+    }
+    pub fn a5(&self) -> usize {
+        self.regs[15]
+    }
     pub fn a7(&self) -> usize {
         self.regs[17]
     }
